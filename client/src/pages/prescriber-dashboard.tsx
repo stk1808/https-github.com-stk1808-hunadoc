@@ -1,0 +1,474 @@
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useRoute } from "wouter";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/components/AuthContext";
+import { AppShell } from "@/components/AppShell";
+import { LedgerProofBadge } from "@/components/LedgerProofBadge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Plus, FileSignature, Video, Phone, User as UserIcon, Calendar } from "lucide-react";
+import type { Patient, Prescription, Visit } from "@/lib/types";
+import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
+
+const NAV = [
+  { label: "Patients", path: "/dashboard/prescriber", testId: "nav-prescriber-patients" },
+  { label: "Prescribe", path: "/dashboard/prescriber/prescribe", testId: "nav-prescriber-prescribe" },
+  { label: "Telehealth", path: "/dashboard/prescriber/visits", testId: "nav-prescriber-visits" },
+];
+
+export default function PrescriberDashboard() {
+  const [, params] = useRoute("/dashboard/prescriber/:tab?");
+  const tab = params?.tab || "patients";
+  return (
+    <AppShell title="Prescriber workspace" subtitle="Manage patients, sign prescriptions, conduct telehealth visits." nav={NAV}>
+      {tab === "patients" && <Patients />}
+      {tab === "prescribe" && <Prescribe />}
+      {tab === "visits" && <Visits />}
+    </AppShell>
+  );
+}
+
+function Patients() {
+  const { toast } = useToast();
+  const { data: patients = [], isLoading } = useQuery<Patient[]>({ queryKey: ["/api/patients"] });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    mrn: "", firstName: "", lastName: "", dob: "", sex: "M",
+    email: "", phone: "", allergies: "",
+  });
+  const create = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/patients", form);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
+      toast({ title: "Patient added" });
+      setOpen(false);
+      setForm({ mrn: "", firstName: "", lastName: "", dob: "", sex: "M", email: "", phone: "", allergies: "" });
+    },
+  });
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Patients ({patients.length})</h2>
+          <p className="text-xs text-muted-foreground">Test-only records. Use synthetic identifiers.</p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-add-patient"><Plus className="h-3.5 w-3.5 mr-1" />New patient</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Add patient (TEST)</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>MRN</Label>
+                  <Input value={form.mrn} onChange={(e) => setForm({ ...form, mrn: e.target.value })} data-testid="input-patient-mrn" placeholder="MRN-885-XXXX" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Sex</Label>
+                  <Select value={form.sex} onValueChange={(v) => setForm({ ...form, sex: v })}>
+                    <SelectTrigger data-testid="select-patient-sex"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="M">M</SelectItem>
+                      <SelectItem value="F">F</SelectItem>
+                      <SelectItem value="X">Non-binary</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>First name</Label>
+                  <Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} data-testid="input-patient-first" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Last name</Label>
+                  <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} data-testid="input-patient-last" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>DOB</Label>
+                <Input type="date" value={form.dob} onChange={(e) => setForm({ ...form, dob: e.target.value })} data-testid="input-patient-dob" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="input-patient-email" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Phone</Label>
+                  <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="input-patient-phone" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Allergies</Label>
+                <Textarea rows={2} value={form.allergies} onChange={(e) => setForm({ ...form, allergies: e.target.value })} data-testid="input-patient-allergies" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() => create.mutate()}
+                disabled={!form.mrn || !form.firstName || !form.lastName || !form.dob || create.isPending}
+                data-testid="button-submit-patient"
+              >Save patient</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      {isLoading && <Skel />}
+      {!isLoading && patients.length === 0 && <Empty message="No patients yet. Add a test patient to start prescribing." />}
+      <div className="grid gap-2">
+        {patients.map((p) => (
+          <Card key={p.id} data-testid={`card-patient-${p.id}`}>
+            <CardContent className="p-3 flex items-center gap-4">
+              <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <UserIcon className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="font-medium text-sm">{p.firstName} {p.lastName}</span>
+                  <span className="text-xs font-mono text-muted-foreground">{p.mrn}</span>
+                </div>
+                <div className="text-xs text-muted-foreground">DOB {fmtDate(p.dob)} · {p.sex || "—"}{p.allergies ? ` · Allergies: ${p.allergies}` : ""}</div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Prescribe() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { data: patients = [] } = useQuery<Patient[]>({ queryKey: ["/api/patients"] });
+  const { data: rxs = [], isLoading } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
+  const [form, setForm] = useState({
+    patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual" as const,
+  });
+  const create = useMutation({
+    mutationFn: async () => {
+      const body = { ...form, patientId: parseInt(form.patientId), refills: parseInt(form.refills) };
+      const r = await apiRequest("POST", "/api/prescriptions", body);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
+      toast({ title: "Draft created", description: "Sign to broadcast to XRPL." });
+      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual" });
+    },
+  });
+  const sign = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/prescriptions/${id}/sign`);
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      toast({
+        title: "Prescription signed and anchored",
+        description: `XRPL tx ${data.broadcast?.txHash?.slice(0, 12)}…`,
+      });
+    },
+  });
+  const drafts = rxs.filter((r) => r.status === "draft");
+  const signed = rxs.filter((r) => r.status !== "draft");
+  return (
+    <div className="grid lg:grid-cols-2 gap-6">
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <h2 className="text-base font-semibold">New prescription</h2>
+          <div className="space-y-1.5">
+            <Label>Patient</Label>
+            <Select value={form.patientId} onValueChange={(v) => setForm({ ...form, patientId: v })}>
+              <SelectTrigger data-testid="select-rx-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
+              <SelectContent>
+                {patients.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName} · {p.mrn}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Drug</Label>
+              <Input value={form.drug} onChange={(e) => setForm({ ...form, drug: e.target.value })} data-testid="input-rx-drug" placeholder="Lisinopril" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Strength</Label>
+              <Input value={form.strength} onChange={(e) => setForm({ ...form, strength: e.target.value })} data-testid="input-rx-strength" placeholder="10 mg" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label>Form</Label>
+              <Select value={form.form} onValueChange={(v) => setForm({ ...form, form: v })}>
+                <SelectTrigger data-testid="select-rx-form"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tablet">Tablet</SelectItem>
+                  <SelectItem value="capsule">Capsule</SelectItem>
+                  <SelectItem value="solution">Solution</SelectItem>
+                  <SelectItem value="cream">Cream</SelectItem>
+                  <SelectItem value="inhaler">Inhaler</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Quantity</Label>
+              <Input value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} data-testid="input-rx-qty" placeholder="30" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Refills</Label>
+              <Input value={form.refills} onChange={(e) => setForm({ ...form, refills: e.target.value })} data-testid="input-rx-refills" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Sig</Label>
+            <Textarea rows={2} value={form.sig} onChange={(e) => setForm({ ...form, sig: e.target.value })} data-testid="input-rx-sig" placeholder="Take 1 tablet by mouth daily" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Routing channel</Label>
+            <Select value={form.channel} onValueChange={(v) => setForm({ ...form, channel: v as any })}>
+              <SelectTrigger data-testid="select-rx-channel"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual (alpha)</SelectItem>
+                <SelectItem value="surescripts">Surescripts NEWRX (sandbox)</SelectItem>
+                <SelectItem value="uep">UEP (universal endpoint, sandbox)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={() => create.mutate()}
+            disabled={!form.patientId || !form.drug || !form.sig || !form.quantity || create.isPending}
+            className="w-full"
+            data-testid="button-save-draft-rx"
+          >Save as draft</Button>
+        </CardContent>
+      </Card>
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Drafts ({drafts.length})</h3>
+          {drafts.length === 0 && <Empty message="No drafts. Create one on the left." />}
+          <div className="space-y-2">
+            {drafts.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono text-muted-foreground">{r.rxNumber}</div>
+                    <div className="text-sm font-medium">{r.drug} {r.strength}</div>
+                    <div className="text-xs text-muted-foreground italic line-clamp-1">{r.sig}</div>
+                  </div>
+                  <Button size="sm" disabled={sign.isPending} onClick={() => sign.mutate(r.id)} data-testid={`button-sign-rx-${r.id}`}>
+                    <FileSignature className="h-3.5 w-3.5 mr-1" />Sign + anchor
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Signed history ({signed.length})</h3>
+          {isLoading && <Skel />}
+          <div className="space-y-2">
+            {signed.map((r) => (
+              <Card key={r.id}>
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-xs font-mono text-muted-foreground">{r.rxNumber}</span>
+                    <Badge variant="outline" className={statusColor(r.status)}>{r.status}</Badge>
+                  </div>
+                  <div className="text-sm">{r.drug} {r.strength} · qty {r.quantity}</div>
+                  {r.ledgerTxHash && <div className="mt-2"><LedgerProofBadge txHash={r.ledgerTxHash} size="sm" /></div>}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Visits() {
+  const { toast } = useToast();
+  const { data: patients = [] } = useQuery<Patient[]>({ queryKey: ["/api/patients"] });
+  const { data: visits = [], isLoading } = useQuery<Visit[]>({ queryKey: ["/api/visits"] });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ patientId: "", scheduledFor: "", reason: "" });
+  const [activeVisit, setActiveVisit] = useState<Visit | null>(null);
+  const [endNotes, setEndNotes] = useState("");
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const body = { ...form, patientId: parseInt(form.patientId) };
+      const r = await apiRequest("POST", "/api/visits", body);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/visits"] });
+      setOpen(false);
+      setForm({ patientId: "", scheduledFor: "", reason: "" });
+      toast({ title: "Visit scheduled" });
+    },
+  });
+  const start = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/visits/${id}/start`);
+      return r.json();
+    },
+    onSuccess: (v: Visit) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/visits"] });
+      setActiveVisit(v);
+      setEndNotes("");
+    },
+  });
+  const end = useMutation({
+    mutationFn: async () => {
+      if (!activeVisit) return;
+      const r = await apiRequest("POST", `/api/visits/${activeVisit.id}/end`, { notes: endNotes });
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/visits"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      setActiveVisit(null);
+      toast({
+        title: "Visit completed and anchored",
+        description: `Note hash anchored · ${data.broadcast?.txHash?.slice(0, 12)}…`,
+      });
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold">Telehealth visits ({visits.length})</h2>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-schedule-visit"><Plus className="h-3.5 w-3.5 mr-1" />Schedule visit</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Schedule telehealth visit</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Patient</Label>
+                <Select value={form.patientId} onValueChange={(v) => setForm({ ...form, patientId: v })}>
+                  <SelectTrigger data-testid="select-visit-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
+                  <SelectContent>
+                    {patients.map((p) => (<SelectItem key={p.id} value={String(p.id)}>{p.firstName} {p.lastName}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Scheduled for</Label>
+                <Input type="datetime-local" value={form.scheduledFor} onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })} data-testid="input-visit-scheduled" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Reason</Label>
+                <Input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} data-testid="input-visit-reason" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => create.mutate()} disabled={!form.patientId || !form.scheduledFor || create.isPending} data-testid="button-submit-visit">
+                Schedule
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Active visit "video" panel — mock UI */}
+      {activeVisit && (
+        <Card className="border-primary/40 bg-primary/[0.03]" data-testid="card-active-visit">
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-medium uppercase tracking-wider">Live · simulated</span>
+            </div>
+            <div className="aspect-video w-full rounded-lg bg-gradient-to-br from-slate-900 to-slate-800 border border-border flex items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 opacity-20" style={{
+                backgroundImage: "radial-gradient(circle at 50% 50%, hsl(var(--primary)) 0, transparent 60%)",
+              }} />
+              <div className="text-center text-slate-300 relative">
+                <Video className="h-10 w-10 mx-auto mb-2 opacity-60" />
+                <p className="text-sm">Telehealth video stream (mocked for alpha)</p>
+                <p className="text-xs opacity-60 mt-1">Visit #{activeVisit.id} · {activeVisit.reason}</p>
+              </div>
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-center gap-2">
+                <Button size="icon" variant="secondary" className="h-9 w-9" data-testid="button-mute"><Phone className="h-4 w-4" /></Button>
+                <Button size="icon" variant="secondary" className="h-9 w-9" data-testid="button-camera"><Video className="h-4 w-4" /></Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Visit notes (will be hashed and anchored)</Label>
+              <Textarea
+                rows={4}
+                value={endNotes}
+                onChange={(e) => setEndNotes(e.target.value)}
+                placeholder="Subjective, objective, assessment, plan…"
+                data-testid="input-visit-notes"
+              />
+              <p className="text-xs text-muted-foreground">Notes stay in HunaDoc. Only their SHA-256 hash is broadcast to XRPL.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setActiveVisit(null)} data-testid="button-cancel-visit">Cancel</Button>
+              <Button onClick={() => end.mutate()} disabled={!endNotes || end.isPending} data-testid="button-end-visit">
+                End visit + anchor hash
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading && <Skel />}
+      {!isLoading && visits.length === 0 && <Empty message="No visits scheduled." />}
+      <div className="grid gap-2">
+        {visits.map((v) => (
+          <Card key={v.id}>
+            <CardContent className="p-3 flex items-center gap-4">
+              <div className="h-9 w-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Calendar className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{v.reason}</span>
+                  <Badge variant="outline" className={statusColor(v.status)}>{v.status}</Badge>
+                </div>
+                <div className="text-xs text-muted-foreground">{fmtDateTime(v.scheduledFor)}</div>
+                {v.ledgerTxHash && <div className="mt-1"><LedgerProofBadge txHash={v.ledgerTxHash} label="Note hash anchored" size="sm" /></div>}
+              </div>
+              {v.status === "scheduled" && (
+                <Button size="sm" onClick={() => start.mutate(v.id)} disabled={start.isPending} data-testid={`button-start-visit-${v.id}`}>
+                  <Video className="h-3.5 w-3.5 mr-1" />Start
+                </Button>
+              )}
+              {v.status === "live" && !activeVisit && (
+                <Button size="sm" variant="outline" onClick={() => setActiveVisit(v)} data-testid={`button-rejoin-visit-${v.id}`}>Rejoin</Button>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Skel() {
+  return <div className="grid gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-border bg-card animate-pulse" />)}</div>;
+}
+function Empty({ message }: { message: string }) {
+  return <Card className="border-dashed"><CardContent className="p-8 text-center text-sm text-muted-foreground">{message}</CardContent></Card>;
+}

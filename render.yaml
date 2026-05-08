@@ -1,0 +1,29 @@
+# Render Blueprint for HunaDoc.
+# Drop this file at the repo root, then in Render: New + > Blueprint > pick this repo.
+# Render will read render.yaml and create the service automatically.
+
+services:
+  - type: web
+    name: hunadoc
+    runtime: docker
+    plan: starter        # $7/mo, required for custom domains + persistent disk.
+                         # Use "free" only for a no-domain test (sleeps after 15 min idle, no disk).
+    region: oregon       # Pick the region closest to you. Options: oregon, ohio, virginia, frankfurt, singapore.
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true     # Auto-deploy on every push to the connected branch
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATA_DIR
+        value: /var/data
+      - key: SESSION_SECRET
+        generateValue: true   # Render generates a strong random value
+      - key: XRPL_WALLET_SEED
+        sync: false           # Set this manually in the Render dashboard (secret)
+    disk:
+      name: hunadoc-data
+      mountPath: /var/data
+      sizeGB: 1
