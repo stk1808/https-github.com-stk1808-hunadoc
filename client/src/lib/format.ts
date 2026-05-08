@@ -22,13 +22,13 @@ export function fmtMoney(n: number | string | null | undefined): string {
 }
 
 export function statusColor(s: string): string {
-  if (s === "verified" || s === "completed" || s === "filled" || s === "signed" || s === "transmitted") {
+  if (s === "verified" || s === "completed" || s === "filled" || s === "signed" || s === "transmitted" || s === "paid") {
     return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30";
   }
-  if (s === "pending" || s === "draft" || s === "scheduled" || s === "open") {
+  if (s === "pending" || s === "draft" || s === "scheduled" || s === "open" || s === "submitted") {
     return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30";
   }
-  if (s === "live" || s === "in_progress" || s === "accepted" || s === "received") {
+  if (s === "live" || s === "in_progress" || s === "accepted" || s === "received" || s === "adjudicated") {
     return "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30";
   }
   if (s === "rejected" || s === "cancelled" || s === "expired") {

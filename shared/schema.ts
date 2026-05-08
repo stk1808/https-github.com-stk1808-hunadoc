@@ -88,8 +88,9 @@ export const prescriptions = sqliteTable("prescriptions", {
   quantity: text("quantity").notNull(),
   refills: integer("refills").default(0),
   daw: integer("daw", { mode: "boolean" }).default(false),
-  channel: text("channel", { enum: ["surescripts", "uep", "manual"] }).default("manual"),
-  ncpdpScript: text("ncpdp_script"), // SCRIPT 2017071 NEWRX, etc.
+  channel: text("channel", { enum: ["surescripts", "direct", "manual"] }).default("manual"),
+  destinationSoftware: text("destination_software", { enum: ["pioneer_rx", "qs1", "best_rx", "rx30", "liberty", "manual"] }).default("manual"),
+  ncpdpScript: text("ncpdp_script"), // SCRIPT 2017071 NEWRX (SIMULATED)
   status: text("status", { enum: ["draft", "signed", "transmitted", "received", "filled", "cancelled"] }).default("draft"),
   documentHash: text("document_hash"),
   ledgerTxHash: text("ledger_tx_hash"),
@@ -159,11 +160,37 @@ export type InsertVisit = z.infer<typeof insertVisitSchema>;
 export type Visit = typeof visits.$inferSelect;
 
 // ============================================================
+// Pharmacy claims — submitted to a SIMULATED PBM, settled on XRPL Testnet
+// ============================================================
+export const claims = sqliteTable("claims", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  claimNumber: text("claim_number").notNull().unique(),
+  prescriptionId: integer("prescription_id").notNull(),
+  pharmacyUserId: integer("pharmacy_user_id").notNull(),
+  payerName: text("payer_name").notNull(), // SIMULATED PBM (e.g. "DemoPBM")
+  billedAmount: real("billed_amount").notNull(),
+  adjudicatedAmount: real("adjudicated_amount"),
+  patientResponsibility: real("patient_responsibility"),
+  status: text("status", { enum: ["submitted", "adjudicated", "paid", "rejected"] }).default("submitted"),
+  rejectReason: text("reject_reason"),
+  submittedAt: integer("submitted_at").notNull(),
+  adjudicatedAt: integer("adjudicated_at"),
+  paidAt: integer("paid_at"),
+  submitTxHash: text("submit_tx_hash"),       // XRPL hash anchoring the claim payload
+  settlementTxHash: text("settlement_tx_hash"), // XRPL Payment from payer wallet to pharmacy wallet
+  settlementAmountXrp: real("settlement_amount_xrp"),
+  payerAddress: text("payer_address"),
+  pharmacyAddress: text("pharmacy_address"),
+  createdAt: integer("created_at").notNull(),
+});
+export type Claim = typeof claims.$inferSelect;
+
+// ============================================================
 // Ledger entries — local mirror of every XRPL broadcast for fast querying
 // ============================================================
 export const ledgerEntries = sqliteTable("ledger_entries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  entityType: text("entity_type", { enum: ["prescription", "license", "shift", "visit"] }).notNull(),
+  entityType: text("entity_type", { enum: ["prescription", "license", "shift", "visit", "claim", "settlement"] }).notNull(),
   entityId: integer("entity_id").notNull(),
   action: text("action").notNull(), // sign, verify, accept, complete, etc.
   documentHash: text("document_hash").notNull(),

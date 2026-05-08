@@ -60,7 +60,9 @@ export interface Prescription {
   quantity: string;
   refills: number;
   daw: boolean;
-  channel: "surescripts" | "uep" | "manual";
+  channel: "surescripts" | "direct" | "manual";
+  destinationSoftware: "pioneer_rx" | "qs1" | "best_rx" | "rx30" | "liberty" | "manual" | null;
+  ncpdpScript: string | null;
   status: "draft" | "signed" | "transmitted" | "received" | "filled" | "cancelled";
   documentHash: string | null;
   ledgerTxHash: string | null;
@@ -68,6 +70,28 @@ export interface Prescription {
   signedAt: number | null;
   filledAt: number | null;
   notes: string | null;
+  createdAt: number;
+}
+
+export interface Claim {
+  id: number;
+  claimNumber: string;
+  prescriptionId: number;
+  pharmacyUserId: number;
+  payerName: string;
+  billedAmount: number;
+  adjudicatedAmount: number | null;
+  patientResponsibility: number | null;
+  status: "submitted" | "adjudicated" | "paid" | "rejected";
+  rejectReason: string | null;
+  submittedAt: number;
+  adjudicatedAt: number | null;
+  paidAt: number | null;
+  submitTxHash: string | null;
+  settlementTxHash: string | null;
+  settlementAmountXrp: number | null;
+  payerAddress: string | null;
+  pharmacyAddress: string | null;
   createdAt: number;
 }
 
@@ -107,7 +131,7 @@ export interface Visit {
 
 export interface LedgerEntry {
   id: number;
-  entityType: "prescription" | "license" | "shift" | "visit";
+  entityType: "prescription" | "license" | "shift" | "visit" | "claim" | "settlement";
   entityId: number;
   action: string;
   documentHash: string;

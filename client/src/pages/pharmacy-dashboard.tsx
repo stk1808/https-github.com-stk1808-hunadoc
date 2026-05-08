@@ -14,12 +14,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Briefcase, Pill, Clock } from "lucide-react";
-import type { Shift, Prescription } from "@/lib/types";
+import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt } from "lucide-react";
+import type { Shift, Prescription, Claim } from "@/lib/types";
 import { fmtDate, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
 const NAV = [
   { label: "Rx queue", path: "/dashboard/pharmacy", testId: "nav-pharmacy-rx" },
+  { label: "Claims & settlements", path: "/dashboard/pharmacy/claims", testId: "nav-pharmacy-claims" },
   { label: "My shifts", path: "/dashboard/pharmacy/shifts", testId: "nav-pharmacy-shifts" },
 ];
 
@@ -27,57 +28,118 @@ export default function PharmacyDashboard() {
   const [, params] = useRoute("/dashboard/pharmacy/:tab?");
   const tab = params?.tab || "rx";
   return (
-    <AppShell title="Pharmacy operations" subtitle="Fill prescriptions, post and manage staffing shifts." nav={NAV}>
+    <AppShell title="Pharmacy operations" subtitle="Fill prescriptions, settle claims, post staffing shifts." nav={NAV}>
       {tab === "rx" && <Queue />}
+      {tab === "claims" && <Claims />}
       {tab === "shifts" && <Shifts />}
     </AppShell>
   );
 }
 
+function channelLabel(channel: string | null) {
+  if (channel === "surescripts") return "Surescripts NewRx (SIMULATED)";
+  if (channel === "direct") return "Direct Pharmacy Connect (SIMULATED)";
+  return "Manual eRx";
+}
+function softwareLabel(soft: string | null) {
+  if (!soft || soft === "manual") return "Manual hand-off";
+  const map: Record<string, string> = {
+    pioneer_rx: "PioneerRx (SIMULATED)",
+    qs1: "QS/1 (SIMULATED)",
+    best_rx: "BestRx (SIMULATED)",
+    rx30: "Rx30 (SIMULATED)",
+    liberty: "Liberty Software (SIMULATED)",
+  };
+  return map[soft] || soft;
+}
+
 function Queue() {
   const { toast } = useToast();
   const { data: rxs = [], isLoading } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
-  const fillMut = useMutation({
-    mutationFn: async (id: number) => {
-      const r = await apiRequest("POST", `/api/prescriptions/${id}/fill`);
-      return r.json();
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+
+  const fillAndClaim = useMutation({
+    mutationFn: async (rx: Prescription) => {
+      // Fill the Rx
+      await apiRequest("POST", `/api/prescriptions/${rx.id}/fill`);
+      // Auto-submit a $50 claim to DemoPBM (SIMULATED) so the pharmacy has
+      // something to adjudicate + settle on the Claims tab.
+      const claimRes = await apiRequest("POST", "/api/claims", {
+        prescriptionId: rx.id,
+        billedAmount: 50,
+        payerName: "DemoPBM (SIMULATED)",
+      });
+      return claimRes.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
-      toast({ title: "Prescription filled" });
+      queryClient.invalidateQueries({ queryKey: ["/api/claims"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      toast({
+        title: "Filled and claim submitted",
+        description: `Claim ${data.claim?.claimNumber} anchored on XRPL Testnet · DemoPBM (SIMULATED).`,
+      });
     },
+    onError: (e: any) => toast({ title: "Could not fill / submit claim", description: e?.message, variant: "destructive" as any }),
   });
+
   const queue = rxs.filter((r) => r.status === "signed" || r.status === "transmitted" || r.status === "received");
   const filled = rxs.filter((r) => r.status === "filled");
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-base font-semibold mb-2">Active queue ({queue.length})</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          Signed prescriptions appear here once a prescriber routes them to this pharmacy. Each card shows the SIMULATED eRx outbox payload alongside the real XRPL Testnet anchor.
+        </p>
         {isLoading && <Skel />}
         {!isLoading && queue.length === 0 && <Empty message="No prescriptions waiting. Signed Rx from prescribers appears here." />}
         <div className="space-y-2">
           {queue.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="p-4 flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="h-9 w-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                    <Pill className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs text-muted-foreground">{r.rxNumber}</span>
-                      <Badge variant="outline" className={statusColor(r.status)}>{r.status}</Badge>
-                      <Badge variant="outline" className="text-[10px]">{r.channel}</Badge>
+            <Card key={r.id} data-testid={`card-rx-${r.id}`}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="h-9 w-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <Pill className="h-4 w-4" />
                     </div>
-                    <p className="text-sm font-medium mt-1">{r.drug} {r.strength} {r.form}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">qty {r.quantity} · refills {r.refills} · DAW {r.daw ? "yes" : "no"}</p>
-                    <p className="text-xs italic text-muted-foreground mt-1">Sig: {r.sig}</p>
-                    {r.ledgerTxHash && <div className="mt-2"><LedgerProofBadge txHash={r.ledgerTxHash} label="Prescriber-signed" size="sm" /></div>}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs text-muted-foreground">{r.rxNumber}</span>
+                        <Badge variant="outline" className={statusColor(r.status)}>{r.status}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{channelLabel(r.channel)}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{softwareLabel(r.destinationSoftware)}</Badge>
+                      </div>
+                      <p className="text-sm font-medium mt-1">{r.drug} {r.strength} {r.form}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">qty {r.quantity} · refills {r.refills} · DAW {r.daw ? "yes" : "no"}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Sig: {r.sig}</p>
+                      {r.ledgerTxHash && <div className="mt-2"><LedgerProofBadge txHash={r.ledgerTxHash} label="Prescriber-signed" size="sm" /></div>}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <Button size="sm" onClick={() => fillAndClaim.mutate(r)} disabled={fillAndClaim.isPending} data-testid={`button-fill-${r.id}`}>
+                      Mark filled + submit claim
+                    </Button>
+                    {r.ncpdpScript && (
+                      <Button size="sm" variant="ghost" onClick={() => setExpanded((s) => ({ ...s, [r.id]: !s[r.id] }))} data-testid={`button-toggle-erx-${r.id}`}>
+                        {expanded[r.id] ? <><ChevronUp className="h-3.5 w-3.5 mr-1" />Hide eRx payload</> : <><ChevronDown className="h-3.5 w-3.5 mr-1" />View eRx payload</>}
+                      </Button>
+                    )}
                   </div>
                 </div>
-                <Button size="sm" onClick={() => fillMut.mutate(r.id)} disabled={fillMut.isPending} data-testid={`button-fill-${r.id}`}>
-                  Mark filled
-                </Button>
+                {expanded[r.id] && r.ncpdpScript && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <Send className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs font-medium">eRx outbox · {channelLabel(r.channel)}</span>
+                      <Badge variant="outline" className="text-[10px] border-amber-400/40 text-amber-700 dark:text-amber-300">SIMULATED</Badge>
+                    </div>
+                    <pre className="text-[10px] leading-snug bg-muted/40 border border-border rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-all max-h-64" data-testid={`pre-erx-${r.id}`}>{r.ncpdpScript}</pre>
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      HunaDoc is not a certified Surescripts or UEP node. The payload above is generated locally; the SHA-256 hash of this payload is anchored to XRPL Testnet via the prescriber-signed transaction shown above.
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -97,6 +159,171 @@ function Queue() {
         </div>
       </div>
     </div>
+  );
+}
+
+function Claims() {
+  const { toast } = useToast();
+  const { data: claims = [], isLoading } = useQuery<Claim[]>({ queryKey: ["/api/claims"] });
+  const { data: rxs = [] } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
+  const { data: payerWallet } = useQuery<any>({ queryKey: ["/api/ledger/payer-wallet"] });
+  const { data: pharmacyWallet } = useQuery<any>({ queryKey: ["/api/ledger/wallet"] });
+
+  const adjudicate = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/claims/${id}/adjudicate`);
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/claims"] });
+      const c = data.claim;
+      toast({
+        title: c.status === "rejected" ? "Claim rejected (SIMULATED)" : "Claim adjudicated (SIMULATED)",
+        description: c.status === "rejected" ? c.rejectReason : `Approved $${c.adjudicatedAmount} · patient resp $${c.patientResponsibility}`,
+      });
+    },
+  });
+  const settle = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/claims/${id}/settle`);
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/claims"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger/payer-wallet"] });
+      toast({
+        title: "T0 settlement complete",
+        description: `${data.broadcast?.amountXrp} XRP · tx ${data.broadcast?.txHash?.slice(0, 12)}…`,
+      });
+    },
+    onError: (e: any) => toast({ title: "Settlement failed", description: e?.message, variant: "destructive" as any }),
+  });
+
+  const submitted = claims.filter((c) => c.status === "submitted");
+  const adjudicated = claims.filter((c) => c.status === "adjudicated");
+  const paid = claims.filter((c) => c.status === "paid");
+  const rejected = claims.filter((c) => c.status === "rejected");
+
+  const rxByIdMap = new Map(rxs.map((r) => [r.id, r]));
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold mb-1">Claims & T0 settlements</h2>
+        <p className="text-xs text-muted-foreground">
+          PBM adjudication is SIMULATED. The settlement Payment is a real XRPL Testnet transaction from the SIMULATED PBM payer wallet to this pharmacy&rsquo;s HunaDoc wallet.
+        </p>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">DemoPBM payer wallet</span>
+              <Badge variant="outline" className="text-[10px] border-amber-400/40 text-amber-700 dark:text-amber-300">SIMULATED PBM</Badge>
+            </div>
+            <div className="font-mono text-xs break-all">{payerWallet?.address || "—"}</div>
+            <div className="text-sm font-semibold mt-1">{payerWallet?.balanceXRP?.toFixed(2) ?? "—"} XRP <span className="text-xs text-muted-foreground font-normal">on Testnet</span></div>
+            {payerWallet?.explorerUrl && <a href={payerWallet.explorerUrl} target="_blank" rel="noreferrer" className="text-[11px] text-primary underline">View on XRPL Testnet explorer</a>}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Pharmacy receiving wallet</span>
+              <Badge variant="outline" className="text-[10px]">REAL Testnet</Badge>
+            </div>
+            <div className="font-mono text-xs break-all">{pharmacyWallet?.address || "—"}</div>
+            <div className="text-sm font-semibold mt-1">{pharmacyWallet?.balanceXRP?.toFixed(2) ?? "—"} XRP <span className="text-xs text-muted-foreground font-normal">on Testnet</span></div>
+            {pharmacyWallet?.explorerUrl && <a href={pharmacyWallet.explorerUrl} target="_blank" rel="noreferrer" className="text-[11px] text-primary underline">View on XRPL Testnet explorer</a>}
+          </CardContent>
+        </Card>
+      </div>
+
+      {isLoading && <Skel />}
+      {!isLoading && claims.length === 0 && <Empty message="No claims yet. Mark an Rx as filled to auto-submit a claim." />}
+
+      <Section title={`Awaiting adjudication (${submitted.length})`} when={submitted.length > 0}>
+        {submitted.map((c) => {
+          const rx = rxByIdMap.get(c.prescriptionId);
+          return (
+            <ClaimRow key={c.id} claim={c} rx={rx} action={
+              <Button size="sm" onClick={() => adjudicate.mutate(c.id)} disabled={adjudicate.isPending} data-testid={`button-adjudicate-${c.id}`}>
+                <Receipt className="h-3.5 w-3.5 mr-1" />Adjudicate (SIMULATED)
+              </Button>
+            } />
+          );
+        })}
+      </Section>
+
+      <Section title={`Adjudicated · ready to settle (${adjudicated.length})`} when={adjudicated.length > 0}>
+        {adjudicated.map((c) => {
+          const rx = rxByIdMap.get(c.prescriptionId);
+          return (
+            <ClaimRow key={c.id} claim={c} rx={rx} action={
+              <Button size="sm" onClick={() => settle.mutate(c.id)} disabled={settle.isPending} data-testid={`button-settle-${c.id}`}>
+                Settle on XRPL
+              </Button>
+            } />
+          );
+        })}
+      </Section>
+
+      <Section title={`Paid · T0 settled (${paid.length})`} when={paid.length > 0}>
+        {paid.map((c) => {
+          const rx = rxByIdMap.get(c.prescriptionId);
+          return <ClaimRow key={c.id} claim={c} rx={rx} />;
+        })}
+      </Section>
+
+      <Section title={`Rejected (${rejected.length})`} when={rejected.length > 0}>
+        {rejected.map((c) => {
+          const rx = rxByIdMap.get(c.prescriptionId);
+          return <ClaimRow key={c.id} claim={c} rx={rx} />;
+        })}
+      </Section>
+    </div>
+  );
+}
+
+function Section({ title, when, children }: { title: string; when: boolean; children: React.ReactNode }) {
+  if (!when) return null;
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-2">{title}</h3>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function ClaimRow({ claim, rx, action }: { claim: Claim; rx?: Prescription; action?: React.ReactNode }) {
+  return (
+    <Card data-testid={`card-claim-${claim.id}`}>
+      <CardContent className="p-3 flex items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs text-muted-foreground">{claim.claimNumber}</span>
+            <Badge variant="outline" className={statusColor(claim.status as any)}>{claim.status}</Badge>
+            <Badge variant="outline" className="text-[10px]">{claim.payerName}</Badge>
+            {rx && <span className="text-xs text-muted-foreground">Rx {rx.rxNumber} · {rx.drug} {rx.strength}</span>}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 mt-2 text-xs">
+            <div><span className="text-muted-foreground">Billed</span><div className="font-medium">{fmtMoney(claim.billedAmount)}</div></div>
+            <div><span className="text-muted-foreground">Adjudicated</span><div className="font-medium">{claim.adjudicatedAmount != null ? fmtMoney(claim.adjudicatedAmount) : "—"}</div></div>
+            <div><span className="text-muted-foreground">Patient resp.</span><div className="font-medium">{claim.patientResponsibility != null ? fmtMoney(claim.patientResponsibility) : "—"}</div></div>
+            <div><span className="text-muted-foreground">Settled</span><div className="font-medium">{claim.settlementAmountXrp != null ? `${claim.settlementAmountXrp} XRP` : "—"}</div></div>
+          </div>
+          {claim.rejectReason && <div className="mt-2 text-xs text-red-600 dark:text-red-400">Reject reason: {claim.rejectReason}</div>}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {claim.submitTxHash && <LedgerProofBadge txHash={claim.submitTxHash} label="Claim submitted" size="sm" />}
+            {claim.settlementTxHash && <LedgerProofBadge txHash={claim.settlementTxHash} label="T0 settlement" size="sm" />}
+          </div>
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
+      </CardContent>
+    </Card>
   );
 }
 

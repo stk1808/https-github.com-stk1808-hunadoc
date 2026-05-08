@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
 import {
-  users, licenses, patients, prescriptions, shifts, visits, ledgerEntries,
+  users, licenses, patients, prescriptions, shifts, visits, ledgerEntries, claims,
   type User, type InsertUser,
   type License, type InsertLicense,
   type Patient, type InsertPatient,
@@ -13,6 +13,7 @@ import {
   type Shift, type InsertShift,
   type Visit, type InsertVisit,
   type LedgerEntry,
+  type Claim,
 } from "@shared/schema";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -138,7 +139,38 @@ sqlite.exec(`
     explorer_url TEXT,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_number TEXT NOT NULL UNIQUE,
+    prescription_id INTEGER NOT NULL,
+    pharmacy_user_id INTEGER NOT NULL,
+    payer_name TEXT NOT NULL,
+    billed_amount REAL NOT NULL,
+    adjudicated_amount REAL,
+    patient_responsibility REAL,
+    status TEXT DEFAULT 'submitted',
+    reject_reason TEXT,
+    submitted_at INTEGER NOT NULL,
+    adjudicated_at INTEGER,
+    paid_at INTEGER,
+    submit_tx_hash TEXT,
+    settlement_tx_hash TEXT,
+    settlement_amount_xrp REAL,
+    payer_address TEXT,
+    pharmacy_address TEXT,
+    created_at INTEGER NOT NULL
+  );
 `);
+
+// Idempotent column add for existing databases (Render disk has prior data)
+try {
+  const cols = sqlite.prepare("PRAGMA table_info(prescriptions)").all() as { name: string }[];
+  if (!cols.find((c) => c.name === "destination_software")) {
+    sqlite.exec("ALTER TABLE prescriptions ADD COLUMN destination_software TEXT DEFAULT 'manual'");
+  }
+} catch (e) {
+  console.warn("[migrate] destination_software:", (e as Error).message);
+}
 
 const now = () => Date.now();
 
@@ -166,8 +198,17 @@ export interface IStorage {
   createPrescription(p: InsertPrescription, prescriberId: number): Promise<Prescription>;
   listPrescriptions(filter?: { prescriberId?: number; pharmacyId?: number; patientId?: number }): Promise<Prescription[]>;
   getPrescription(id: number): Promise<Prescription | undefined>;
-  signPrescription(id: number, txHash: string, ledgerSeq: number, docHash: string): Promise<Prescription | undefined>;
+  signPrescription(id: number, txHash: string, ledgerSeq: number, docHash: string, ncpdpScript?: string): Promise<Prescription | undefined>;
+  updatePrescriptionRouting(id: number, channel: string, destinationSoftware: string, pharmacyId?: number): Promise<void>;
   fillPrescription(id: number): Promise<Prescription | undefined>;
+
+  // Claims & T0 settlements
+  createClaim(c: { prescriptionId: number; pharmacyUserId: number; payerName: string; billedAmount: number; payerAddress?: string; pharmacyAddress?: string; submitTxHash?: string; }): Promise<Claim>;
+  getClaim(id: number): Promise<Claim | undefined>;
+  listClaimsByPharmacy(pharmacyUserId: number): Promise<Claim[]>;
+  listAllClaims(): Promise<Claim[]>;
+  adjudicateClaim(id: number, adjudicatedAmount: number, patientResponsibility: number, status: "adjudicated" | "rejected", rejectReason?: string): Promise<Claim | undefined>;
+  settleClaim(id: number, settlementTxHash: string, settlementAmountXrp: number): Promise<Claim | undefined>;
 
   // Shifts
   createShift(s: InsertShift): Promise<Shift>;
@@ -254,15 +295,22 @@ class SQLiteStorage implements IStorage {
   async getPrescription(id: number) {
     return db.select().from(prescriptions).where(eq(prescriptions.id, id)).get();
   }
-  async signPrescription(id: number, txHash: string, ledgerSeq: number, docHash: string) {
-    db.update(prescriptions).set({
+  async signPrescription(id: number, txHash: string, ledgerSeq: number, docHash: string, ncpdpScript?: string) {
+    const update: any = {
       status: "signed",
       ledgerTxHash: txHash,
       ledgerSequence: ledgerSeq,
       documentHash: docHash,
       signedAt: now(),
-    }).where(eq(prescriptions.id, id)).run();
+    };
+    if (ncpdpScript) update.ncpdpScript = ncpdpScript;
+    db.update(prescriptions).set(update).where(eq(prescriptions.id, id)).run();
     return this.getPrescription(id);
+  }
+  async updatePrescriptionRouting(id: number, channel: string, destinationSoftware: string, pharmacyId?: number) {
+    const update: any = { channel, destinationSoftware };
+    if (pharmacyId !== undefined) update.pharmacyId = pharmacyId;
+    db.update(prescriptions).set(update).where(eq(prescriptions.id, id)).run();
   }
   async fillPrescription(id: number) {
     db.update(prescriptions).set({ status: "filled", filledAt: now() }).where(eq(prescriptions.id, id)).run();
@@ -314,6 +362,55 @@ class SQLiteStorage implements IStorage {
       endedAt: now(),
     }).where(eq(visits.id, id)).run();
     return db.select().from(visits).where(eq(visits.id, id)).get();
+  }
+
+  // ============================================================
+  // Claims
+  // ============================================================
+  async createClaim(c: { prescriptionId: number; pharmacyUserId: number; payerName: string; billedAmount: number; payerAddress?: string; pharmacyAddress?: string; submitTxHash?: string; }): Promise<Claim> {
+    const claimNumber = `CLM-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
+    return db.insert(claims).values({
+      claimNumber,
+      prescriptionId: c.prescriptionId,
+      pharmacyUserId: c.pharmacyUserId,
+      payerName: c.payerName,
+      billedAmount: c.billedAmount,
+      status: "submitted",
+      submittedAt: now(),
+      submitTxHash: c.submitTxHash,
+      payerAddress: c.payerAddress,
+      pharmacyAddress: c.pharmacyAddress,
+      createdAt: now(),
+    }).returning().get();
+  }
+  async getClaim(id: number) {
+    return db.select().from(claims).where(eq(claims.id, id)).get();
+  }
+  async listClaimsByPharmacy(pharmacyUserId: number) {
+    return db.select().from(claims).where(eq(claims.pharmacyUserId, pharmacyUserId)).orderBy(desc(claims.createdAt)).all();
+  }
+  async listAllClaims() {
+    return db.select().from(claims).orderBy(desc(claims.createdAt)).all();
+  }
+  async adjudicateClaim(id: number, adjudicatedAmount: number, patientResponsibility: number, status: "adjudicated" | "rejected", rejectReason?: string) {
+    const update: any = {
+      adjudicatedAmount,
+      patientResponsibility,
+      status,
+      adjudicatedAt: now(),
+    };
+    if (rejectReason) update.rejectReason = rejectReason;
+    db.update(claims).set(update).where(eq(claims.id, id)).run();
+    return this.getClaim(id);
+  }
+  async settleClaim(id: number, settlementTxHash: string, settlementAmountXrp: number) {
+    db.update(claims).set({
+      settlementTxHash,
+      settlementAmountXrp,
+      status: "paid",
+      paidAt: now(),
+    }).where(eq(claims.id, id)).run();
+    return this.getClaim(id);
   }
 
   async recordLedger(entry: Omit<LedgerEntry, "id" | "createdAt">) {

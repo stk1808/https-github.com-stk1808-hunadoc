@@ -155,32 +155,52 @@ function Prescribe() {
   const { toast } = useToast();
   const { data: patients = [] } = useQuery<Patient[]>({ queryKey: ["/api/patients"] });
   const { data: rxs = [], isLoading } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
+  const { data: pharmacies = [] } = useQuery<any[]>({ queryKey: ["/api/users", "pharmacy"], queryFn: async () => {
+    const r = await apiRequest("GET", "/api/users?role=pharmacy");
+    return r.json();
+  }});
   const [form, setForm] = useState({
-    patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual" as const,
+    patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0",
+    channel: "manual" as "manual" | "surescripts" | "direct",
+    destinationSoftware: "manual" as "manual" | "pioneer_rx" | "qs1" | "best_rx" | "rx30" | "liberty",
+    pharmacyId: "",
   });
   const create = useMutation({
     mutationFn: async () => {
-      const body = { ...form, patientId: parseInt(form.patientId), refills: parseInt(form.refills) };
+      const body: any = {
+        patientId: parseInt(form.patientId),
+        drug: form.drug, strength: form.strength, form: form.form,
+        sig: form.sig, quantity: form.quantity, refills: parseInt(form.refills),
+        channel: form.channel, destinationSoftware: form.destinationSoftware,
+      };
+      if (form.pharmacyId) body.pharmacyId = parseInt(form.pharmacyId);
       const r = await apiRequest("POST", "/api/prescriptions", body);
       return r.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
-      toast({ title: "Draft created", description: "Sign to broadcast to XRPL." });
-      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual" });
+      toast({ title: "Draft created", description: "Sign to broadcast to XRPL and route." });
+      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual", destinationSoftware: "manual", pharmacyId: "" });
     },
   });
   const sign = useMutation({
     mutationFn: async (id: number) => {
-      const r = await apiRequest("POST", `/api/prescriptions/${id}/sign`);
+      // Resend the routing fields at sign time — server uses these if the draft
+      // didn't have them set yet.
+      const body = {
+        routingChannel: form.channel,
+        destinationSoftware: form.destinationSoftware,
+        pharmacyId: form.pharmacyId ? parseInt(form.pharmacyId) : undefined,
+      };
+      const r = await apiRequest("POST", `/api/prescriptions/${id}/sign`, body);
       return r.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
       toast({
-        title: "Prescription signed and anchored",
-        description: `XRPL tx ${data.broadcast?.txHash?.slice(0, 12)}…`,
+        title: "Prescription signed, anchored, and routed",
+        description: `XRPL tx ${data.broadcast?.txHash?.slice(0, 12)}… · sent to pharmacy queue (SIMULATED).`,
       });
     },
   });
@@ -245,10 +265,41 @@ function Prescribe() {
               <SelectTrigger data-testid="select-rx-channel"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="manual">Manual (alpha)</SelectItem>
-                <SelectItem value="surescripts">Surescripts NEWRX (sandbox)</SelectItem>
-                <SelectItem value="uep">UEP (universal endpoint, sandbox)</SelectItem>
+                <SelectItem value="surescripts">Surescripts NewRx (SIMULATED)</SelectItem>
+                <SelectItem value="direct">Direct Pharmacy Connect (SIMULATED)</SelectItem>
               </SelectContent>
             </Select>
+            {form.channel !== "manual" && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                Honest label: HunaDoc is not yet a certified Surescripts/UEP node. The eRx payload is generated and the SHA-256 hash is anchored to XRPL Testnet.
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label>Destination pharmacy software</Label>
+            <Select value={form.destinationSoftware} onValueChange={(v) => setForm({ ...form, destinationSoftware: v as any })}>
+              <SelectTrigger data-testid="select-rx-destination-software"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual hand-off</SelectItem>
+                <SelectItem value="pioneer_rx">PioneerRx (SIMULATED)</SelectItem>
+                <SelectItem value="qs1">QS/1 (SIMULATED)</SelectItem>
+                <SelectItem value="best_rx">BestRx (SIMULATED)</SelectItem>
+                <SelectItem value="rx30">Rx30 (SIMULATED)</SelectItem>
+                <SelectItem value="liberty">Liberty Software (SIMULATED)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Pharmacy (HunaDoc)</Label>
+            <Select value={form.pharmacyId} onValueChange={(v) => setForm({ ...form, pharmacyId: v })}>
+              <SelectTrigger data-testid="select-rx-pharmacy"><SelectValue placeholder="Select pharmacy" /></SelectTrigger>
+              <SelectContent>
+                {pharmacies.map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.organizationName || p.fullName} · NCPDP {p.ncpdp || "—"}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">When set, the signed Rx appears in this pharmacy’s Active queue immediately.</p>
           </div>
           <Button
             onClick={() => create.mutate()}
@@ -269,10 +320,23 @@ function Prescribe() {
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-mono text-muted-foreground">{r.rxNumber}</div>
                     <div className="text-sm font-medium">{r.drug} {r.strength}</div>
-                    <div className="text-xs text-muted-foreground italic line-clamp-1">{r.sig}</div>
+                    <div className="text-xs text-muted-foreground line-clamp-1">{r.sig}</div>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      {r.channel && r.channel !== "manual" && (
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                          {r.channel === "surescripts" ? "Surescripts" : "Direct"} · SIM
+                        </Badge>
+                      )}
+                      {r.destinationSoftware && r.destinationSoftware !== "manual" && (
+                        <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                          {r.destinationSoftware.replace(/_/g, " ").toUpperCase()} · SIM
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Button size="sm" disabled={sign.isPending} onClick={() => sign.mutate(r.id)} data-testid={`button-sign-rx-${r.id}`}>
-                    <FileSignature className="h-3.5 w-3.5 mr-1" />Sign + anchor
+                    <FileSignature className="h-3.5 w-3.5 mr-1" />
+                    {form.channel === "manual" ? "Sign + anchor" : "Send NewRx + anchor"}
                   </Button>
                 </CardContent>
               </Card>
