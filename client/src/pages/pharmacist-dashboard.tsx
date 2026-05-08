@@ -13,16 +13,39 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useLocation, useRoute } from "wouter";
-import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus, Syringe } from "lucide-react";
+import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus, Syringe, Calendar, Pill, BookOpen } from "lucide-react";
+import { HelpGuide } from "@/components/HelpGuide";
+import type { NavGroup } from "@/components/AppShell";
 import type { Shift, License, Prescription, User, LaiAdministration } from "@/lib/types";
 import { fmtDate, fmtDateTime, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
-const NAV = [
-  { label: "Open shifts", path: "/dashboard/pharmacist", testId: "nav-pharmacist-shifts" },
-  { label: "My shifts", path: "/dashboard/pharmacist/my", testId: "nav-pharmacist-my" },
-  { label: "Rx queue", path: "/dashboard/pharmacist/rx", testId: "nav-pharmacist-rx" },
-  { label: "LAI administrations", path: "/dashboard/pharmacist/lai", testId: "nav-pharmacist-lai" },
-  { label: "Credentials", path: "/dashboard/pharmacist/credentials", testId: "nav-pharmacist-creds" },
+const NAV: NavGroup[] = [
+  {
+    label: "Work",
+    items: [
+      { label: "Open shifts", path: "/dashboard/pharmacist", testId: "nav-pharmacist-shifts", icon: Briefcase },
+      { label: "My shifts", path: "/dashboard/pharmacist/my", testId: "nav-pharmacist-my", icon: Calendar },
+    ],
+  },
+  {
+    label: "Patient care",
+    items: [
+      { label: "Rx queue", path: "/dashboard/pharmacist/rx", testId: "nav-pharmacist-rx", icon: Pill },
+      { label: "LAI administrations", path: "/dashboard/pharmacist/lai", testId: "nav-pharmacist-lai", icon: Syringe },
+    ],
+  },
+  {
+    label: "Profile",
+    items: [
+      { label: "Credentials", path: "/dashboard/pharmacist/credentials", testId: "nav-pharmacist-creds", icon: FileBadge2 },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "User guide", path: "/dashboard/pharmacist/help", testId: "nav-pharmacist-help", icon: BookOpen },
+    ],
+  },
 ];
 
 const SCHEDULE_LABELS: Record<string, string> = {
@@ -44,6 +67,7 @@ export default function PharmacistDashboard() {
       {tab === "rx" && <RxQueue />}
       {tab === "lai" && <LaiAdministrationsPage />}
       {tab === "credentials" && <Credentials />}
+      {tab === "help" && <HelpGuide role="pharmacist" />}
     </AppShell>
   );
 }

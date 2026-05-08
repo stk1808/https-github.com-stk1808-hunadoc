@@ -7,15 +7,33 @@ import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink } from "lucide-react";
+import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard } from "lucide-react";
+import { HelpGuide } from "@/components/HelpGuide";
+import type { NavGroup } from "@/components/AppShell";
 import type { LedgerEntry, License, User } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
 
-const NAV = [
-  { label: "Overview", path: "/dashboard/manager", testId: "nav-manager-overview" },
-  { label: "Verify licenses", path: "/dashboard/manager/verify", testId: "nav-manager-verify" },
-  { label: "Ledger feed", path: "/dashboard/manager/ledger", testId: "nav-manager-ledger" },
-  { label: "Users", path: "/dashboard/manager/users", testId: "nav-manager-users" },
+const NAV: NavGroup[] = [
+  {
+    label: "Network",
+    items: [
+      { label: "Overview", path: "/dashboard/manager", testId: "nav-manager-overview", icon: LayoutDashboard },
+      { label: "Users", path: "/dashboard/manager/users", testId: "nav-manager-users", icon: Users },
+    ],
+  },
+  {
+    label: "Compliance",
+    items: [
+      { label: "Verify licenses", path: "/dashboard/manager/verify", testId: "nav-manager-verify", icon: ShieldCheck },
+      { label: "Ledger feed", path: "/dashboard/manager/ledger", testId: "nav-manager-ledger", icon: Database },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "User guide", path: "/dashboard/manager/help", testId: "nav-manager-help", icon: BookOpen },
+    ],
+  },
 ];
 
 export default function ManagerDashboard() {
@@ -27,6 +45,7 @@ export default function ManagerDashboard() {
       {tab === "verify" && <VerifyLicenses />}
       {tab === "ledger" && <LedgerFeed />}
       {tab === "users" && <UsersList />}
+      {tab === "help" && <HelpGuide role="manager" />}
     </AppShell>
   );
 }

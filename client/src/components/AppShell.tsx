@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { useLocation } from "wouter";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { LogOut, Moon, Sun, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -10,16 +10,23 @@ import { useAuth } from "./AuthContext";
 import { useState, useEffect } from "react";
 import type { Role } from "@/lib/types";
 
-interface NavItem {
+export interface NavItem {
   label: string;
   path: string;
   testId: string;
+  icon?: LucideIcon;
+}
+
+export interface NavGroup {
+  label?: string; // omit for ungrouped (single section)
+  items: NavItem[];
 }
 
 interface Props {
   title: string;
   subtitle?: string;
-  nav?: NavItem[];
+  /** Either a flat list of items or grouped sections. */
+  nav?: NavItem[] | NavGroup[];
   children: ReactNode;
 }
 
@@ -39,6 +46,10 @@ const ROLE_COLOR: Record<Role, string> = {
   patient: "bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30",
 };
 
+function isGrouped(nav: NavItem[] | NavGroup[]): nav is NavGroup[] {
+  return nav.length > 0 && (nav[0] as NavGroup).items !== undefined;
+}
+
 export function AppShell({ title, subtitle, nav, children }: Props) {
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
@@ -54,6 +65,10 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
   }, [dark]);
 
   if (!user) return null;
+
+  const groups: NavGroup[] | null = nav && nav.length > 0
+    ? (isGrouped(nav) ? nav : [{ items: nav }])
+    : null;
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -104,10 +119,19 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
       </header>
 
       <div className="flex flex-1 min-h-0">
-        {nav && nav.length > 0 && (
-          <aside className="w-56 border-r border-border bg-sidebar/30 px-3 py-4 flex flex-col gap-1 shrink-0">
-            {nav.map((item) => (
-              <NavLink key={item.path} item={item} />
+        {groups && (
+          <aside className="w-60 border-r border-border bg-sidebar/30 px-3 py-4 flex flex-col gap-4 shrink-0">
+            {groups.map((g, gi) => (
+              <div key={gi} className="flex flex-col gap-1">
+                {g.label && (
+                  <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {g.label}
+                  </div>
+                )}
+                {g.items.map((item) => (
+                  <NavLink key={item.path} item={item} />
+                ))}
+              </div>
             ))}
           </aside>
         )}
@@ -125,20 +149,20 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
 
 function NavLink({ item }: { item: NavItem }) {
   const [location, setLocation] = useLocation();
-  // Exact match only — each tab has a distinct path. Prefix matching causes
-  // the base /dashboard/<role> to highlight on every sub-tab.
   const active = location === item.path;
+  const Icon = item.icon;
   return (
     <button
       data-testid={item.testId}
       onClick={() => setLocation(item.path)}
-      className={`text-left text-sm px-3 py-2 rounded-md transition-colors ${
+      className={`text-left text-sm px-3 py-2 rounded-md transition-colors flex items-center gap-2 ${
         active
           ? "bg-primary/10 text-primary font-medium"
           : "text-foreground/70 hover:bg-accent hover:text-foreground"
       }`}
     >
-      {item.label}
+      {Icon && <Icon className="h-4 w-4 shrink-0" />}
+      <span className="truncate">{item.label}</span>
     </button>
   );
 }

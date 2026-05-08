@@ -14,14 +14,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, FileSignature, Video, Phone, User as UserIcon, Calendar } from "lucide-react";
+import { Plus, FileSignature, Video, Phone, User as UserIcon, Calendar, Users, Pill, Syringe, BookOpen } from "lucide-react";
+import { HelpGuide } from "@/components/HelpGuide";
+import type { NavGroup } from "@/components/AppShell";
 import type { Patient, Prescription, Visit, User } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
 
-const NAV = [
-  { label: "Patients", path: "/dashboard/prescriber", testId: "nav-prescriber-patients" },
-  { label: "Prescribe", path: "/dashboard/prescriber/prescribe", testId: "nav-prescriber-prescribe" },
-  { label: "Telehealth", path: "/dashboard/prescriber/visits", testId: "nav-prescriber-visits" },
+const NAV: NavGroup[] = [
+  {
+    label: "Care",
+    items: [
+      { label: "Patients", path: "/dashboard/prescriber", testId: "nav-prescriber-patients", icon: Users },
+      { label: "Telehealth", path: "/dashboard/prescriber/visits", testId: "nav-prescriber-visits", icon: Video },
+    ],
+  },
+  {
+    label: "Prescribing",
+    items: [
+      { label: "New prescription", path: "/dashboard/prescriber/prescribe", testId: "nav-prescriber-prescribe", icon: Pill },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "User guide", path: "/dashboard/prescriber/help", testId: "nav-prescriber-help", icon: BookOpen },
+    ],
+  },
 ];
 
 export default function PrescriberDashboard() {
@@ -32,6 +50,7 @@ export default function PrescriberDashboard() {
       {tab === "patients" && <Patients />}
       {tab === "prescribe" && <Prescribe />}
       {tab === "visits" && <Visits />}
+      {tab === "help" && <HelpGuide role="prescriber" />}
     </AppShell>
   );
 }

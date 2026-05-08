@@ -14,14 +14,32 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt } from "lucide-react";
+import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt, BookOpen } from "lucide-react";
+import { HelpGuide } from "@/components/HelpGuide";
+import type { NavGroup } from "@/components/AppShell";
 import type { Shift, Prescription, Claim } from "@/lib/types";
 import { fmtDate, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
-const NAV = [
-  { label: "Rx queue", path: "/dashboard/pharmacy", testId: "nav-pharmacy-rx" },
-  { label: "Claims & settlements", path: "/dashboard/pharmacy/claims", testId: "nav-pharmacy-claims" },
-  { label: "My shifts", path: "/dashboard/pharmacy/shifts", testId: "nav-pharmacy-shifts" },
+const NAV: NavGroup[] = [
+  {
+    label: "Operations",
+    items: [
+      { label: "Rx queue", path: "/dashboard/pharmacy", testId: "nav-pharmacy-rx", icon: Pill },
+      { label: "Claims & settlements", path: "/dashboard/pharmacy/claims", testId: "nav-pharmacy-claims", icon: Receipt },
+    ],
+  },
+  {
+    label: "Staffing",
+    items: [
+      { label: "Shifts", path: "/dashboard/pharmacy/shifts", testId: "nav-pharmacy-shifts", icon: Briefcase },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "User guide", path: "/dashboard/pharmacy/help", testId: "nav-pharmacy-help", icon: BookOpen },
+    ],
+  },
 ];
 
 export default function PharmacyDashboard() {
@@ -32,6 +50,7 @@ export default function PharmacyDashboard() {
       {tab === "rx" && <Queue />}
       {tab === "claims" && <Claims />}
       {tab === "shifts" && <Shifts />}
+      {tab === "help" && <HelpGuide role="pharmacy" />}
     </AppShell>
   );
 }

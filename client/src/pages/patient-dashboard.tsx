@@ -4,14 +4,32 @@ import { AppShell } from "@/components/AppShell";
 import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Pill, Calendar, FileBadge2, ShieldCheck } from "lucide-react";
+import { Pill, Calendar, FileBadge2, ShieldCheck, Video, BookOpen } from "lucide-react";
+import { HelpGuide } from "@/components/HelpGuide";
+import type { NavGroup } from "@/components/AppShell";
 import type { Prescription, Visit, LedgerEntry } from "@/lib/types";
 import { fmtDateTime, statusColor } from "@/lib/format";
 
-const NAV = [
-  { label: "Prescriptions", path: "/dashboard/patient", testId: "nav-patient-rx" },
-  { label: "Telehealth", path: "/dashboard/patient/visits", testId: "nav-patient-visits" },
-  { label: "Verification", path: "/dashboard/patient/proofs", testId: "nav-patient-proofs" },
+const NAV: NavGroup[] = [
+  {
+    label: "My care",
+    items: [
+      { label: "Prescriptions", path: "/dashboard/patient", testId: "nav-patient-rx", icon: Pill },
+      { label: "Telehealth", path: "/dashboard/patient/visits", testId: "nav-patient-visits", icon: Video },
+    ],
+  },
+  {
+    label: "Trust",
+    items: [
+      { label: "Verification", path: "/dashboard/patient/proofs", testId: "nav-patient-proofs", icon: ShieldCheck },
+    ],
+  },
+  {
+    label: "Help",
+    items: [
+      { label: "User guide", path: "/dashboard/patient/help", testId: "nav-patient-help", icon: BookOpen },
+    ],
+  },
 ];
 
 export default function PatientDashboard() {
@@ -22,6 +40,7 @@ export default function PatientDashboard() {
       {tab === "rx" && <RxList />}
       {tab === "visits" && <VisitList />}
       {tab === "proofs" && <Proofs />}
+      {tab === "help" && <HelpGuide role="patient" />}
     </AppShell>
   );
 }
