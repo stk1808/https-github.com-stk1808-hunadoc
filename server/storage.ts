@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import path from "path";
 import fs from "fs";
 import {
-  users, licenses, patients, prescriptions, shifts, visits, ledgerEntries, claims,
+  users, licenses, patients, prescriptions, shifts, visits, ledgerEntries, claims, laiAdministrations,
   type User, type InsertUser,
   type License, type InsertLicense,
   type Patient, type InsertPatient,
@@ -14,6 +14,7 @@ import {
   type Visit, type InsertVisit,
   type LedgerEntry,
   type Claim,
+  type LaiAdministration,
 } from "@shared/schema";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -160,16 +161,51 @@ sqlite.exec(`
     pharmacy_address TEXT,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS lai_administrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prescription_id INTEGER NOT NULL,
+    pharmacist_id INTEGER NOT NULL,
+    scheduled_for INTEGER,
+    schedule TEXT DEFAULT 'asap',
+    cycle_number INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'pending',
+    accepted_at INTEGER,
+    administered_at INTEGER,
+    administration_notes TEXT,
+    document_hash TEXT,
+    accept_tx_hash TEXT,
+    administer_tx_hash TEXT,
+    claim_id INTEGER,
+    created_at INTEGER NOT NULL
+  );
 `);
 
-// Idempotent column add for existing databases (Render disk has prior data)
-try {
-  const cols = sqlite.prepare("PRAGMA table_info(prescriptions)").all() as { name: string }[];
-  if (!cols.find((c) => c.name === "destination_software")) {
-    sqlite.exec("ALTER TABLE prescriptions ADD COLUMN destination_software TEXT DEFAULT 'manual'");
+// Idempotent column adds for existing databases (Render disk has prior data)
+function addColumnIfMissing(table: string, column: string, ddl: string) {
+  try {
+    const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.find((c) => c.name === column)) {
+      sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    }
+  } catch (e) {
+    console.warn(`[migrate] ${table}.${column}:`, (e as Error).message);
   }
+}
+addColumnIfMissing("prescriptions", "destination_software", "TEXT DEFAULT 'manual'");
+addColumnIfMissing("prescriptions", "is_lai", "INTEGER DEFAULT 0");
+addColumnIfMissing("prescriptions", "lai_schedule", "TEXT");
+addColumnIfMissing("prescriptions", "mobile_pharmacist_id", "INTEGER");
+addColumnIfMissing("users", "lai_certified", "INTEGER DEFAULT 0");
+addColumnIfMissing("users", "mobile", "INTEGER DEFAULT 0");
+
+// One-shot fixup: ensure demo pharmacist is LAI-certified + mobile so existing prod DBs
+// (where seedIfEmpty already ran) still surface a choice in the prescriber picker.
+try {
+  sqlite.exec(
+    "UPDATE users SET lai_certified = 1, mobile = 1 WHERE email = 'pharmacist@demo.huna' AND (lai_certified = 0 OR mobile = 0)"
+  );
 } catch (e) {
-  console.warn("[migrate] destination_software:", (e as Error).message);
+  console.warn("[migrate] demo lai pharmacist fixup:", (e as Error).message);
 }
 
 const now = () => Date.now();
@@ -196,11 +232,19 @@ export interface IStorage {
 
   // Prescriptions
   createPrescription(p: InsertPrescription, prescriberId: number): Promise<Prescription>;
-  listPrescriptions(filter?: { prescriberId?: number; pharmacyId?: number; patientId?: number }): Promise<Prescription[]>;
+  listPrescriptions(filter?: { prescriberId?: number; pharmacyId?: number; patientId?: number; mobilePharmacistId?: number }): Promise<Prescription[]>;
   getPrescription(id: number): Promise<Prescription | undefined>;
   signPrescription(id: number, txHash: string, ledgerSeq: number, docHash: string, ncpdpScript?: string): Promise<Prescription | undefined>;
   updatePrescriptionRouting(id: number, channel: string, destinationSoftware: string, pharmacyId?: number): Promise<void>;
+  setPrescriptionLai(id: number, isLai: boolean, schedule?: string | null, mobilePharmacistId?: number | null): Promise<void>;
   fillPrescription(id: number): Promise<Prescription | undefined>;
+
+  // LAI administrations
+  createLaiAdministration(a: { prescriptionId: number; pharmacistId: number; schedule: string; scheduledFor?: number | null; cycleNumber?: number; }): Promise<LaiAdministration>;
+  getLaiAdministration(id: number): Promise<LaiAdministration | undefined>;
+  listLaiAdministrations(filter?: { pharmacistId?: number; prescriptionId?: number }): Promise<LaiAdministration[]>;
+  acceptLaiAdministration(id: number, scheduledFor: number | null, txHash: string, docHash: string): Promise<LaiAdministration | undefined>;
+  administerLai(id: number, txHash: string, docHash: string, notes?: string, claimId?: number): Promise<LaiAdministration | undefined>;
 
   // Claims & T0 settlements
   createClaim(c: { prescriptionId: number; pharmacyUserId: number; payerName: string; billedAmount: number; payerAddress?: string; pharmacyAddress?: string; submitTxHash?: string; }): Promise<Claim>;
@@ -285,11 +329,12 @@ class SQLiteStorage implements IStorage {
     const rxNumber = `Rx-${100000 + Math.floor(Math.random() * 900000)}`;
     return db.insert(prescriptions).values({ ...p, prescriberId, rxNumber, createdAt: now() }).returning().get();
   }
-  async listPrescriptions(filter?: { prescriberId?: number; pharmacyId?: number; patientId?: number }) {
+  async listPrescriptions(filter?: { prescriberId?: number; pharmacyId?: number; patientId?: number; mobilePharmacistId?: number }) {
     let q = db.select().from(prescriptions).$dynamic();
     if (filter?.prescriberId) q = q.where(eq(prescriptions.prescriberId, filter.prescriberId));
     else if (filter?.pharmacyId) q = q.where(eq(prescriptions.pharmacyId, filter.pharmacyId));
     else if (filter?.patientId) q = q.where(eq(prescriptions.patientId, filter.patientId));
+    else if (filter?.mobilePharmacistId) q = q.where(eq(prescriptions.mobilePharmacistId, filter.mobilePharmacistId));
     return q.orderBy(desc(prescriptions.createdAt)).all();
   }
   async getPrescription(id: number) {
@@ -310,6 +355,12 @@ class SQLiteStorage implements IStorage {
   async updatePrescriptionRouting(id: number, channel: string, destinationSoftware: string, pharmacyId?: number) {
     const update: any = { channel, destinationSoftware };
     if (pharmacyId !== undefined) update.pharmacyId = pharmacyId;
+    db.update(prescriptions).set(update).where(eq(prescriptions.id, id)).run();
+  }
+  async setPrescriptionLai(id: number, isLai: boolean, schedule?: string | null, mobilePharmacistId?: number | null) {
+    const update: any = { isLai };
+    if (schedule !== undefined) update.laiSchedule = schedule;
+    if (mobilePharmacistId !== undefined) update.mobilePharmacistId = mobilePharmacistId;
     db.update(prescriptions).set(update).where(eq(prescriptions.id, id)).run();
   }
   async fillPrescription(id: number) {
@@ -413,6 +464,52 @@ class SQLiteStorage implements IStorage {
     return this.getClaim(id);
   }
 
+  // ============================================================
+  // LAI administrations
+  // ============================================================
+  async createLaiAdministration(a: { prescriptionId: number; pharmacistId: number; schedule: string; scheduledFor?: number | null; cycleNumber?: number; }): Promise<LaiAdministration> {
+    return db.insert(laiAdministrations).values({
+      prescriptionId: a.prescriptionId,
+      pharmacistId: a.pharmacistId,
+      schedule: a.schedule as any,
+      scheduledFor: a.scheduledFor ?? null,
+      cycleNumber: a.cycleNumber ?? 1,
+      status: "pending",
+      createdAt: now(),
+    }).returning().get();
+  }
+  async getLaiAdministration(id: number) {
+    return db.select().from(laiAdministrations).where(eq(laiAdministrations.id, id)).get();
+  }
+  async listLaiAdministrations(filter?: { pharmacistId?: number; prescriptionId?: number }) {
+    let q = db.select().from(laiAdministrations).$dynamic();
+    if (filter?.pharmacistId) q = q.where(eq(laiAdministrations.pharmacistId, filter.pharmacistId));
+    else if (filter?.prescriptionId) q = q.where(eq(laiAdministrations.prescriptionId, filter.prescriptionId));
+    return q.orderBy(desc(laiAdministrations.createdAt)).all();
+  }
+  async acceptLaiAdministration(id: number, scheduledFor: number | null, txHash: string, docHash: string) {
+    db.update(laiAdministrations).set({
+      status: scheduledFor ? "scheduled" : "accepted",
+      acceptedAt: now(),
+      scheduledFor: scheduledFor ?? null,
+      acceptTxHash: txHash,
+      documentHash: docHash,
+    }).where(eq(laiAdministrations.id, id)).run();
+    return this.getLaiAdministration(id);
+  }
+  async administerLai(id: number, txHash: string, docHash: string, notes?: string, claimId?: number) {
+    const update: any = {
+      status: "administered",
+      administeredAt: now(),
+      administerTxHash: txHash,
+      documentHash: docHash,
+    };
+    if (notes) update.administrationNotes = notes;
+    if (claimId) update.claimId = claimId;
+    db.update(laiAdministrations).set(update).where(eq(laiAdministrations.id, id)).run();
+    return this.getLaiAdministration(id);
+  }
+
   async recordLedger(entry: Omit<LedgerEntry, "id" | "createdAt">) {
     return db.insert(ledgerEntries).values({ ...entry, createdAt: now() }).returning().get();
   }
@@ -450,6 +547,12 @@ export async function seedIfEmpty() {
     // Pharmacist starts unverified so the manager has something to verify in alpha
     if (d.role !== "pharmacist") await storage.setUserVerified(u.id, true);
     userIdByEmail[d.email] = u.id;
+  }
+
+  // Mark the demo pharmacist as LAI-certified + mobile so the prescriber picker has a choice
+  const pharmacistUserId = userIdByEmail["pharmacist@demo.huna"];
+  if (pharmacistUserId) {
+    db.update(users).set({ laiCertified: true, mobile: true }).where(eq(users.id, pharmacistUserId)).run();
   }
 
   // Seed a sample pending license for the pharmacist so the manager flow has data on first run

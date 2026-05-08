@@ -20,6 +20,9 @@ export const users = sqliteTable("users", {
   specialty: text("specialty"),
   state: text("state").default("HI"),
   verified: integer("verified", { mode: "boolean" }).default(false),
+  // pharmacist-only flags
+  laiCertified: integer("lai_certified", { mode: "boolean" }).default(false),
+  mobile: integer("mobile", { mode: "boolean" }).default(false), // available for mobile administration
   createdAt: integer("created_at").notNull(),
 });
 
@@ -91,6 +94,10 @@ export const prescriptions = sqliteTable("prescriptions", {
   channel: text("channel", { enum: ["surescripts", "direct", "manual"] }).default("manual"),
   destinationSoftware: text("destination_software", { enum: ["pioneer_rx", "qs1", "best_rx", "rx30", "liberty", "manual"] }).default("manual"),
   ncpdpScript: text("ncpdp_script"), // SCRIPT 2017071 NEWRX (SIMULATED)
+  // Long-acting injectable (LAI) administration routing
+  isLai: integer("is_lai", { mode: "boolean" }).default(false),
+  laiSchedule: text("lai_schedule", { enum: ["asap", "monthly", "q2w", "q4w", "q3month", "q6month"] }),
+  mobilePharmacistId: integer("mobile_pharmacist_id"), // assigned LAI-certified pharmacist
   status: text("status", { enum: ["draft", "signed", "transmitted", "received", "filled", "cancelled"] }).default("draft"),
   documentHash: text("document_hash"),
   ledgerTxHash: text("ledger_tx_hash"),
@@ -186,11 +193,33 @@ export const claims = sqliteTable("claims", {
 export type Claim = typeof claims.$inferSelect;
 
 // ============================================================
+// LAI administrations — long-acting injectable visits/timestamps
+// ============================================================
+export const laiAdministrations = sqliteTable("lai_administrations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  prescriptionId: integer("prescription_id").notNull(),
+  pharmacistId: integer("pharmacist_id").notNull(), // mobile pharmacist who accepts/administers
+  scheduledFor: integer("scheduled_for"),           // unix ms — null if ASAP
+  schedule: text("schedule", { enum: ["asap", "monthly", "q2w", "q4w", "q3month", "q6month"] }).default("asap"),
+  cycleNumber: integer("cycle_number").default(1),  // 1, 2, 3 ... follow-up index for recurring schedules
+  status: text("status", { enum: ["pending", "accepted", "scheduled", "administered", "missed", "cancelled"] }).default("pending"),
+  acceptedAt: integer("accepted_at"),
+  administeredAt: integer("administered_at"),       // actual injection timestamp
+  administrationNotes: text("administration_notes"),
+  documentHash: text("document_hash"),
+  acceptTxHash: text("accept_tx_hash"),             // XRPL anchor for accept event
+  administerTxHash: text("administer_tx_hash"),     // XRPL anchor for administration event
+  claimId: integer("claim_id"),                     // auto-submitted admin-fee claim
+  createdAt: integer("created_at").notNull(),
+});
+export type LaiAdministration = typeof laiAdministrations.$inferSelect;
+
+// ============================================================
 // Ledger entries — local mirror of every XRPL broadcast for fast querying
 // ============================================================
 export const ledgerEntries = sqliteTable("ledger_entries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  entityType: text("entity_type", { enum: ["prescription", "license", "shift", "visit", "claim", "settlement"] }).notNull(),
+  entityType: text("entity_type", { enum: ["prescription", "license", "shift", "visit", "claim", "settlement", "lai_administration"] }).notNull(),
   entityId: integer("entity_id").notNull(),
   action: text("action").notNull(), // sign, verify, accept, complete, etc.
   documentHash: text("document_hash").notNull(),

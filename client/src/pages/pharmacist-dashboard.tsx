@@ -13,16 +13,26 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useLocation, useRoute } from "wouter";
-import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus } from "lucide-react";
-import type { Shift, License, Prescription, User } from "@/lib/types";
-import { fmtDate, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
+import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus, Syringe } from "lucide-react";
+import type { Shift, License, Prescription, User, LaiAdministration } from "@/lib/types";
+import { fmtDate, fmtDateTime, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
 const NAV = [
   { label: "Open shifts", path: "/dashboard/pharmacist", testId: "nav-pharmacist-shifts" },
   { label: "My shifts", path: "/dashboard/pharmacist/my", testId: "nav-pharmacist-my" },
   { label: "Rx queue", path: "/dashboard/pharmacist/rx", testId: "nav-pharmacist-rx" },
+  { label: "LAI administrations", path: "/dashboard/pharmacist/lai", testId: "nav-pharmacist-lai" },
   { label: "Credentials", path: "/dashboard/pharmacist/credentials", testId: "nav-pharmacist-creds" },
 ];
+
+const SCHEDULE_LABELS: Record<string, string> = {
+  asap: "ASAP (one-time)",
+  monthly: "Monthly",
+  q2w: "Every 2 weeks",
+  q4w: "Every 4 weeks",
+  q3month: "Every 3 months",
+  q6month: "Every 6 months",
+};
 
 export default function PharmacistDashboard() {
   const [, params] = useRoute("/dashboard/pharmacist/:tab?");
@@ -32,6 +42,7 @@ export default function PharmacistDashboard() {
       {tab === "open" && <OpenShifts />}
       {tab === "my" && <MyShifts />}
       {tab === "rx" && <RxQueue />}
+      {tab === "lai" && <LaiAdministrationsPage />}
       {tab === "credentials" && <Credentials />}
     </AppShell>
   );
@@ -206,6 +217,235 @@ function RxQueue() {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+function LaiAdministrationsPage() {
+  const { toast } = useToast();
+  const { data: admins = [], isLoading } = useQuery<LaiAdministration[]>({ queryKey: ["/api/lai/administrations"] });
+  const { data: rxs = [] } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
+  const rxLookup = new Map(rxs.map((r) => [r.id, r]));
+
+  const [scheduleDialog, setScheduleDialog] = useState<{ id: number; date: string } | null>(null);
+  const [administerDialog, setAdministerDialog] = useState<{ id: number; notes: string } | null>(null);
+
+  const acceptMut = useMutation({
+    mutationFn: async ({ id, scheduledFor }: { id: number; scheduledFor?: string }) => {
+      const body: any = {};
+      if (scheduledFor) body.scheduledFor = new Date(scheduledFor).getTime();
+      const r = await apiRequest("POST", `/api/lai/administrations/${id}/accept`, body);
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lai/administrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      toast({
+        title: "LAI administration accepted",
+        description: `Anchored to XRPL Testnet · ${data.broadcast?.txHash?.slice(0, 12) || ""}…`,
+      });
+      setScheduleDialog(null);
+    },
+  });
+
+  const administerMut = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const r = await apiRequest("POST", `/api/lai/administrations/${id}/administer`, { notes });
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/lai/administrations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/claims"] });
+      toast({
+        title: "Administration recorded",
+        description: `Timestamped on XRPL Testnet. SIMULATED $150 admin-fee claim auto-submitted.`,
+      });
+      setAdministerDialog(null);
+    },
+  });
+
+  const pending = admins.filter((a) => a.status === "pending");
+  const scheduled = admins.filter((a) => a.status === "accepted" || a.status === "scheduled");
+  const administered = admins.filter((a) => a.status === "administered");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold">LAI administrations</h2>
+        <p className="text-xs text-muted-foreground">Long-acting injectable orders routed to you. Accept, schedule, and timestamp each administration. Each completed visit auto-submits a SIMULATED $150 admin-fee claim with T0 settlement on XRPL Testnet.</p>
+      </div>
+
+      {isLoading && <SkeletonList />}
+      {!isLoading && admins.length === 0 && <EmptyCard message="No LAI orders yet. Prescribers can route LAI Rx to you when you are LAI-certified." />}
+
+      {pending.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Pending acceptance ({pending.length})</h3>
+          <div className="grid gap-3">
+            {pending.map((a) => {
+              const rx = rxLookup.get(a.prescriptionId);
+              return (
+                <Card key={a.id} data-testid={`card-lai-pending-${a.id}`}>
+                  <CardContent className="p-4 flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <LaiHeader admin={a} rx={rx} />
+                    </div>
+                    <div className="flex flex-col gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        disabled={acceptMut.isPending}
+                        onClick={() => acceptMut.mutate({ id: a.id })}
+                        data-testid={`button-accept-lai-${a.id}`}
+                      >Accept (ASAP)</Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setScheduleDialog({ id: a.id, date: "" })}
+                        data-testid={`button-schedule-lai-${a.id}`}
+                      >Schedule…</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {scheduled.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Scheduled / accepted ({scheduled.length})</h3>
+          <div className="grid gap-3">
+            {scheduled.map((a) => {
+              const rx = rxLookup.get(a.prescriptionId);
+              return (
+                <Card key={a.id} data-testid={`card-lai-scheduled-${a.id}`}>
+                  <CardContent className="p-4 flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <LaiHeader admin={a} rx={rx} />
+                      {a.acceptTxHash && (
+                        <div className="mt-2"><LedgerProofBadge txHash={a.acceptTxHash} label="Acceptance anchored" size="sm" /></div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => setAdministerDialog({ id: a.id, notes: "" })}
+                      data-testid={`button-administer-lai-${a.id}`}
+                    >
+                      <Syringe className="h-3.5 w-3.5 mr-1" />Mark administered
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {administered.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Administered ({administered.length})</h3>
+          <div className="grid gap-3">
+            {administered.map((a) => {
+              const rx = rxLookup.get(a.prescriptionId);
+              return (
+                <Card key={a.id} data-testid={`card-lai-administered-${a.id}`}>
+                  <CardContent className="p-4 space-y-2">
+                    <LaiHeader admin={a} rx={rx} />
+                    <div className="text-xs text-muted-foreground">
+                      Administered {a.administeredAt ? fmtDateTime(new Date(a.administeredAt).toISOString()) : "—"}
+                    </div>
+                    {a.administrationNotes && (
+                      <p className="text-xs text-muted-foreground italic">Notes: {a.administrationNotes}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {a.administerTxHash && <LedgerProofBadge txHash={a.administerTxHash} label="Administration anchored" size="sm" />}
+                      {a.claimId && (
+                        <Badge variant="outline" className="text-[10px]">Admin-fee claim #{a.claimId} (SIMULATED $150 · T0)</Badge>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Schedule dialog */}
+      <Dialog open={!!scheduleDialog} onOpenChange={(o) => !o && setScheduleDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Schedule LAI administration</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Scheduled for</Label>
+              <Input
+                type="datetime-local"
+                value={scheduleDialog?.date || ""}
+                onChange={(e) => setScheduleDialog((s) => s ? { ...s, date: e.target.value } : s)}
+                data-testid="input-lai-scheduled-for"
+              />
+              <p className="text-[11px] text-muted-foreground">Acceptance is anchored to XRPL Testnet immediately. Timestamp at administration is broadcast separately.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => scheduleDialog && acceptMut.mutate({ id: scheduleDialog.id, scheduledFor: scheduleDialog.date || undefined })}
+              disabled={acceptMut.isPending}
+              data-testid="button-confirm-schedule-lai"
+            >Accept + anchor</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Administer dialog */}
+      <Dialog open={!!administerDialog} onOpenChange={(o) => !o && setAdministerDialog(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Confirm administration</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Notes (optional)</Label>
+              <Input
+                value={administerDialog?.notes || ""}
+                onChange={(e) => setAdministerDialog((s) => s ? { ...s, notes: e.target.value } : s)}
+                placeholder="Site, lot, observations…"
+                data-testid="input-lai-admin-notes"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              On confirmation: timestamp anchored to XRPL Testnet, SIMULATED $150 admin-fee claim auto-submitted with T0 settlement, and (for recurring schedules) the next-cycle administration is created automatically.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => administerDialog && administerMut.mutate({ id: administerDialog.id, notes: administerDialog.notes })}
+              disabled={administerMut.isPending}
+              data-testid="button-confirm-administer-lai"
+            >Mark administered + anchor</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function LaiHeader({ admin, rx }: { admin: LaiAdministration; rx: Prescription | undefined }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <Syringe className="h-3.5 w-3.5 text-primary shrink-0" />
+        <span className="font-semibold text-sm">{rx ? `${rx.drug} ${rx.strength}` : `Prescription #${admin.prescriptionId}`}</span>
+        <Badge variant="outline" className="text-[10px]">Cycle {admin.cycleNumber}</Badge>
+        <Badge variant="outline" className="text-[10px]">{SCHEDULE_LABELS[admin.schedule] || admin.schedule}</Badge>
+        <Badge variant="outline" className={statusColor(admin.status)}>{admin.status}</Badge>
+      </div>
+      {rx && (
+        <p className="text-xs text-muted-foreground mt-1">Rx {rx.rxNumber} · {rx.sig}</p>
+      )}
+      {admin.scheduledFor && (
+        <p className="text-xs text-muted-foreground mt-1">Scheduled: {fmtDateTime(new Date(admin.scheduledFor).toISOString())}</p>
+      )}
     </div>
   );
 }

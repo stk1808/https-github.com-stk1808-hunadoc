@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Plus, FileSignature, Video, Phone, User as UserIcon, Calendar } from "lucide-react";
-import type { Patient, Prescription, Visit } from "@/lib/types";
+import type { Patient, Prescription, Visit, User } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
 
 const NAV = [
@@ -159,12 +159,28 @@ function Prescribe() {
     const r = await apiRequest("GET", "/api/users?role=pharmacy");
     return r.json();
   }});
+  const { data: laiPharmacists = [] } = useQuery<User[]>({ queryKey: ["/api/users", "pharmacist", "laiCertified"], queryFn: async () => {
+    const r = await apiRequest("GET", "/api/users?role=pharmacist&laiCertified=1");
+    return r.json();
+  }});
   const [form, setForm] = useState({
     patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0",
     channel: "manual" as "manual" | "surescripts" | "direct",
     destinationSoftware: "manual" as "manual" | "pioneer_rx" | "qs1" | "best_rx" | "rx30" | "liberty",
     pharmacyId: "",
+    isLai: false,
+    laiSchedule: "asap" as "asap" | "monthly" | "q2w" | "q4w" | "q3month" | "q6month",
+    mobilePharmacistId: "",
   });
+  const LAI_DRUG_KEYWORDS = [
+    "aristada", "invega sustenna", "invega trinza", "invega hafyera",
+    "abilify maintena", "abilify asimtufii", "asimtufii",
+    "risperdal consta", "perseris", "uzedy", "zyprexa relprevv",
+    "sublocade", "brixadi", "vivitrol",
+    "haldol decanoate", "prolixin decanoate",
+  ];
+  const detectedLai = !!form.drug && LAI_DRUG_KEYWORDS.some((k) => form.drug.toLowerCase().includes(k));
+  const showLaiSection = detectedLai || form.isLai;
   const create = useMutation({
     mutationFn: async () => {
       const body: any = {
@@ -180,18 +196,23 @@ function Prescribe() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
       toast({ title: "Draft created", description: "Sign to broadcast to XRPL and route." });
-      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual", destinationSoftware: "manual", pharmacyId: "" });
+      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual", destinationSoftware: "manual", pharmacyId: "", isLai: false, laiSchedule: "asap", mobilePharmacistId: "" });
     },
   });
   const sign = useMutation({
     mutationFn: async (id: number) => {
       // Resend the routing fields at sign time — server uses these if the draft
       // didn't have them set yet.
-      const body = {
+      const body: any = {
         routingChannel: form.channel,
         destinationSoftware: form.destinationSoftware,
         pharmacyId: form.pharmacyId ? parseInt(form.pharmacyId) : undefined,
       };
+      if (showLaiSection) {
+        body.isLai = true;
+        body.laiSchedule = form.laiSchedule;
+        if (form.mobilePharmacistId) body.mobilePharmacistId = parseInt(form.mobilePharmacistId);
+      }
       const r = await apiRequest("POST", `/api/prescriptions/${id}/sign`, body);
       return r.json();
     },
@@ -301,6 +322,64 @@ function Prescribe() {
             </Select>
             <p className="text-[11px] text-muted-foreground">When set, the signed Rx appears in this pharmacy’s Active queue immediately.</p>
           </div>
+
+          {/* LAI section */}
+          <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Long-acting injectable (LAI) administration</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {detectedLai
+                    ? "Detected from drug name. Toggle locked on. Pick a schedule and a mobile LAI-certified pharmacist below."
+                    : "Toggle on for clinic-administered injectables (Aristada, Invega Sustenna, Sublocade, etc.)."}
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={showLaiSection}
+                  disabled={detectedLai}
+                  onChange={(e) => setForm({ ...form, isLai: e.target.checked })}
+                  data-testid="toggle-rx-lai"
+                  className="h-4 w-4"
+                />
+                <span>{showLaiSection ? "On" : "Off"}</span>
+              </label>
+            </div>
+            {showLaiSection && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Schedule</Label>
+                  <Select value={form.laiSchedule} onValueChange={(v) => setForm({ ...form, laiSchedule: v as any })}>
+                    <SelectTrigger data-testid="select-lai-schedule"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="asap">ASAP (one-time, timestamped on administration)</SelectItem>
+                      <SelectItem value="monthly">Monthly recurring</SelectItem>
+                      <SelectItem value="q2w">Every 2 weeks (q2w)</SelectItem>
+                      <SelectItem value="q4w">Every 4 weeks (q4w)</SelectItem>
+                      <SelectItem value="q3month">Every 3 months (q3 month)</SelectItem>
+                      <SelectItem value="q6month">Every 6 months (q6 month)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Mobile pharmacist (LAI-certified)</Label>
+                  <Select value={form.mobilePharmacistId} onValueChange={(v) => setForm({ ...form, mobilePharmacistId: v })}>
+                    <SelectTrigger data-testid="select-lai-pharmacist"><SelectValue placeholder={laiPharmacists.length ? "Select pharmacist" : "No LAI-certified pharmacists available"} /></SelectTrigger>
+                    <SelectContent>
+                      {laiPharmacists.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>{p.fullName} · {p.email}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    On signing, this pharmacist receives the order in their LAI administrations queue with a real XRPL Testnet anchor. Each administration is timestamped and triggers a SIMULATED $150 admin-fee claim with T0 settlement.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
           <Button
             onClick={() => create.mutate()}
             disabled={!form.patientId || !form.drug || !form.sig || !form.quantity || create.isPending}

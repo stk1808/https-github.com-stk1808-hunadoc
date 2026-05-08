@@ -14,6 +14,8 @@ export interface User {
   specialty: string | null;
   state: string | null;
   verified: boolean;
+  laiCertified?: boolean;
+  mobile?: boolean;
   createdAt: number;
 }
 
@@ -63,6 +65,9 @@ export interface Prescription {
   channel: "surescripts" | "direct" | "manual";
   destinationSoftware: "pioneer_rx" | "qs1" | "best_rx" | "rx30" | "liberty" | "manual" | null;
   ncpdpScript: string | null;
+  isLai?: boolean;
+  laiSchedule?: "asap" | "monthly" | "q2w" | "q4w" | "q3month" | "q6month" | null;
+  mobilePharmacistId?: number | null;
   status: "draft" | "signed" | "transmitted" | "received" | "filled" | "cancelled";
   documentHash: string | null;
   ledgerTxHash: string | null;
@@ -129,9 +134,27 @@ export interface Visit {
   createdAt: number;
 }
 
+export interface LaiAdministration {
+  id: number;
+  prescriptionId: number;
+  pharmacistId: number;
+  scheduledFor: number | null;
+  schedule: "asap" | "monthly" | "q2w" | "q4w" | "q3month" | "q6month";
+  cycleNumber: number;
+  status: "pending" | "accepted" | "scheduled" | "administered" | "missed" | "cancelled";
+  acceptedAt: number | null;
+  administeredAt: number | null;
+  administrationNotes: string | null;
+  documentHash: string | null;
+  acceptTxHash: string | null;
+  administerTxHash: string | null;
+  claimId: number | null;
+  createdAt: number;
+}
+
 export interface LedgerEntry {
   id: number;
-  entityType: "prescription" | "license" | "shift" | "visit" | "claim" | "settlement";
+  entityType: "prescription" | "license" | "shift" | "visit" | "claim" | "settlement" | "lai_administration";
   entityId: number;
   action: string;
   documentHash: string;
