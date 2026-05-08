@@ -259,7 +259,7 @@ function LaiAdministrationsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/claims"] });
       toast({
         title: "Administration recorded",
-        description: `Timestamped on XRPL Testnet. SIMULATED $150 admin-fee claim auto-submitted.`,
+        description: `Timestamped on XRPL Testnet. SIMULATED $200 admin-fee claim auto-submitted.`,
       });
       setAdministerDialog(null);
     },
@@ -273,7 +273,7 @@ function LaiAdministrationsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-base font-semibold">LAI administrations</h2>
-        <p className="text-xs text-muted-foreground">Long-acting injectable orders routed to you. Accept, schedule, and timestamp each administration. Each completed visit auto-submits a SIMULATED $150 admin-fee claim with T0 settlement on XRPL Testnet.</p>
+        <p className="text-xs text-muted-foreground">Long-acting injectable orders routed to you. Accept, schedule, and timestamp each administration. Each completed visit auto-submits a SIMULATED $200 admin-fee claim with T0 settlement on XRPL Testnet.</p>
       </div>
 
       {isLoading && <SkeletonList />}
@@ -362,7 +362,7 @@ function LaiAdministrationsPage() {
                     <div className="flex flex-wrap gap-2">
                       {a.administerTxHash && <LedgerProofBadge txHash={a.administerTxHash} label="Administration anchored" size="sm" />}
                       {a.claimId && (
-                        <Badge variant="outline" className="text-[10px]">Admin-fee claim #{a.claimId} (SIMULATED $150 · T0)</Badge>
+                        <Badge variant="outline" className="text-[10px]">Admin-fee claim #{a.claimId} (SIMULATED $200 · T0)</Badge>
                       )}
                     </div>
                   </CardContent>
@@ -414,7 +414,7 @@ function LaiAdministrationsPage() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              On confirmation: timestamp anchored to XRPL Testnet, SIMULATED $150 admin-fee claim auto-submitted with T0 settlement, and (for recurring schedules) the next-cycle administration is created automatically.
+              On confirmation: timestamp anchored to XRPL Testnet, SIMULATED $200 admin-fee claim auto-submitted with T0 settlement, and (for recurring schedules) the next-cycle administration is created automatically.
             </p>
           </div>
           <DialogFooter>

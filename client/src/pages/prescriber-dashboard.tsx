@@ -373,7 +373,7 @@ function Prescribe() {
                     </SelectContent>
                   </Select>
                   <p className="text-[11px] text-muted-foreground">
-                    On signing, this pharmacist receives the order in their LAI administrations queue with a real XRPL Testnet anchor. Each administration is timestamped and triggers a SIMULATED $150 admin-fee claim with T0 settlement.
+                    On signing, this pharmacist receives the order in their LAI administrations queue with a real XRPL Testnet anchor. Each administration is timestamped and triggers a SIMULATED $200 admin-fee claim with T0 settlement.
                   </p>
                 </div>
               </>

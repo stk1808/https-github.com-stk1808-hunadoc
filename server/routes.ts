@@ -601,7 +601,7 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       };
       const broadcast = await broadcastToXRPL(adminDoc, "lai_administration", `LAI-${admin.id}-cycle${admin.cycleNumber}`, "administer");
 
-      // Auto-submit a $150 admin-fee claim (SIMULATED) and anchor it on XRPL.
+      // Auto-submit a $200 admin-fee claim (SIMULATED) and anchor it on XRPL.
       // The pharmacist (= mobile pharmacist) receives the settlement, since they
       // are the entity who delivered the service.
       let claim: any = null;
@@ -611,7 +611,7 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
           prescription_id: admin.prescriptionId,
           administration_id: admin.id,
           fee_type: "LAI administration fee (SIMULATED)",
-          billed_amount: 150,
+          billed_amount: 200,
           payer_name: "DemoPBM (SIMULATED)",
           submitted_at: administeredAtIso,
         };
@@ -620,7 +620,7 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
           prescriptionId: admin.prescriptionId,
           pharmacyUserId: req.session.userId,
           payerName: "DemoPBM (SIMULATED)",
-          billedAmount: 150,
+          billedAmount: 200,
           submitTxHash: claimBroadcast.txHash,
         });
         await storage.recordLedger({
