@@ -514,9 +514,9 @@ function Credentials() {
                   <SelectTrigger data-testid="select-credential-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pharmacist_license">Pharmacist license</SelectItem>
-                    <SelectItem value="dea">DEA</SelectItem>
-                    <SelectItem value="controlled_substance">Controlled substance permit</SelectItem>
-                    <SelectItem value="telehealth_license">Telehealth license</SelectItem>
+                    <SelectItem value="professional_liability_insurance">Professional Liability Insurance</SelectItem>
+                    <SelectItem value="form_1099">1099 form completed, signed & dated</SelectItem>
+                    <SelectItem value="other_certifications">Other certifications</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

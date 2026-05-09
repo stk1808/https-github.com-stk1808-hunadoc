@@ -36,7 +36,7 @@ export type User = typeof users.$inferSelect;
 export const licenses = sqliteTable("licenses", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull(),
-  type: text("type", { enum: ["pharmacist_license", "dea", "npi", "pharmacy_permit", "controlled_substance", "telehealth_license"] }).notNull(),
+  type: text("type", { enum: ["pharmacist_license", "dea", "npi", "pharmacy_permit", "controlled_substance", "telehealth_license", "professional_liability_insurance", "form_1099", "other_certifications"] }).notNull(),
   number: text("number").notNull(),
   issuingState: text("issuing_state").notNull(),
   issueDate: text("issue_date"),

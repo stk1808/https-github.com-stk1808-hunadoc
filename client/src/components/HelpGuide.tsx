@@ -116,7 +116,7 @@ const PHARMACIST: GuideSection[] = [
   {
     title: "Credentials",
     image: imgPharmacistCreds,
-    intro: "Add your licenses (state pharmacist, DEA, controlled substance, telehealth). A manager verifies and anchors them on-chain.",
+    intro: "Add your credentials (state pharmacist license, professional liability insurance, signed 1099 form, and other certifications). A manager verifies and anchors them on-chain.",
     steps: [
       { title: "Add credential", body: "Click Add credential. Pick type, enter number, state, and expiration." },
       { title: "Submit for verification", body: "The credential goes pending until a manager verifies it." },
