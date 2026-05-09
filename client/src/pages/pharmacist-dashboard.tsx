@@ -488,6 +488,7 @@ function Credentials() {
       const r = await apiRequest("POST", "/api/licenses", {
         type, number, issuingState: type === "form_1099" ? "--" : state, expirationDate: exp || null,
       });
+      // For Professional Liability Insurance, `number` holds the policy NAME and `state` holds the policy NUMBER.
       return r.json();
     },
     onSuccess: () => {
@@ -535,6 +536,23 @@ function Credentials() {
                     <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-credential-exp" />
                   </div>
                 </>
+              ) : type === "professional_liability_insurance" ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Name of policy</Label>
+                      <Input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. Pharmacists Mutual" data-testid="input-credential-policy-name" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Policy number</Label>
+                      <Input value={state} onChange={(e) => setState(e.target.value)} data-testid="input-credential-policy-number" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Expiration</Label>
+                    <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-credential-exp" />
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -577,7 +595,7 @@ function Credentials() {
                     <h3 className="font-medium text-sm capitalize">{l.type.replace(/_/g, " ")}</h3>
                     <Badge variant="outline" className={statusColor(l.status)}>{l.status}</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{l.number}{l.type === "form_1099" ? "" : ` · ${l.issuingState}`} · {l.type === "form_1099" ? `signed ${l.expirationDate || "—"}` : `expires ${l.expirationDate || "—"}`}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{l.type === "professional_liability_insurance" ? `${l.number} · policy ${l.issuingState} · expires ${l.expirationDate || "—"}` : l.type === "form_1099" ? `${l.number} · signed ${l.expirationDate || "—"}` : `${l.number} · ${l.issuingState} · expires ${l.expirationDate || "—"}`}</p>
                   {l.ledgerTxHash && (
                     <div className="mt-2"><LedgerProofBadge txHash={l.ledgerTxHash} label="Manager-verified" size="sm" /></div>
                   )}
