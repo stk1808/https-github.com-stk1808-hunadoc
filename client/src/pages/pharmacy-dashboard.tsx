@@ -14,10 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt, BookOpen } from "lucide-react";
+import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt, BookOpen, FileBadge2, Building2 } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
-import type { Shift, Prescription, Claim } from "@/lib/types";
+import type { Shift, Prescription, Claim, License } from "@/lib/types";
 import { fmtDate, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
 const NAV: NavGroup[] = [
@@ -32,6 +32,12 @@ const NAV: NavGroup[] = [
     label: "Staffing",
     items: [
       { label: "Shifts", path: "/dashboard/pharmacy/shifts", testId: "nav-pharmacy-shifts", icon: Briefcase },
+    ],
+  },
+  {
+    label: "Pharmacy",
+    items: [
+      { label: "Profile", path: "/dashboard/pharmacy/profile", testId: "nav-pharmacy-profile", icon: Building2 },
     ],
   },
   {
@@ -50,6 +56,7 @@ export default function PharmacyDashboard() {
       {tab === "rx" && <Queue />}
       {tab === "claims" && <Claims />}
       {tab === "shifts" && <Shifts />}
+      {tab === "profile" && <PharmacyProfile />}
       {tab === "help" && <HelpGuide role="pharmacy" />}
     </AppShell>
   );
@@ -457,6 +464,119 @@ function Shifts() {
 
 function Skel() {
   return <div className="grid gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-border bg-card animate-pulse" />)}</div>;
+}
+
+function pharmacyTypeLabel(t: string): string {
+  if (t === "ncpdp") return "NCPDP";
+  if (t === "pharmacy_dea") return "DEA #";
+  if (t === "pharmacy_npi") return "NPI #";
+  if (t === "pharmacy_license") return "Pharmacy License #";
+  if (t === "pic_number") return "PIC # (Pharmacist In Charge)";
+  return t.replace(/_/g, " ");
+}
+
+function PharmacyProfile() {
+  const { toast } = useToast();
+  const { data: licenses = [], isLoading } = useQuery<License[]>({ queryKey: ["/api/licenses"] });
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState("ncpdp");
+  const [number, setNumber] = useState("");
+  const [state, setState] = useState("HI");
+  const [exp, setExp] = useState("");
+  const create = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/licenses", {
+        type, number, issuingState: state, expirationDate: exp || null,
+      });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/licenses"] });
+      toast({ title: "Credential submitted", description: "Awaiting manager verification + XRPL anchor." });
+      setOpen(false);
+      setNumber("");
+    },
+  });
+  const pharmacyTypes = ["ncpdp", "pharmacy_dea", "pharmacy_npi", "pharmacy_license", "pic_number"];
+  const pharmacyLicenses = licenses.filter((l) => pharmacyTypes.includes(l.type));
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Pharmacy profile</h2>
+        <p className="text-xs text-muted-foreground mt-1">Manage your pharmacy registrations and licenses. Each is verified by a manager and anchored to the XRP Ledger.</p>
+      </div>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Credentials</h3>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-add-pharmacy-credential"><Plus className="h-3.5 w-3.5 mr-1" />Add credential</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Add pharmacy credential</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Type</Label>
+                <Select value={type} onValueChange={setType}>
+                  <SelectTrigger data-testid="select-pharmacy-credential-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ncpdp">NCPDP</SelectItem>
+                    <SelectItem value="pharmacy_dea">DEA #</SelectItem>
+                    <SelectItem value="pharmacy_npi">NPI #</SelectItem>
+                    <SelectItem value="pharmacy_license">Pharmacy License #</SelectItem>
+                    <SelectItem value="pic_number">PIC # (Pharmacist In Charge)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>License number</Label>
+                  <Input value={number} onChange={(e) => setNumber(e.target.value)} data-testid="input-pharmacy-credential-number" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>State</Label>
+                  <Input value={state} onChange={(e) => setState(e.target.value)} maxLength={2} data-testid="input-pharmacy-credential-state" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expiration</Label>
+                <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-pharmacy-credential-exp" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => create.mutate()} disabled={!number || create.isPending} data-testid="button-submit-pharmacy-credential">
+                Submit for verification
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+      {isLoading && <Skel />}
+      {!isLoading && pharmacyLicenses.length === 0 && <Empty message="No pharmacy credentials on file. Add NCPDP, DEA, NPI, Pharmacy License, and PIC." />}
+      <div className="grid gap-3">
+        {pharmacyLicenses.map((l) => (
+          <Card key={l.id}>
+            <CardContent className="p-4 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="h-9 w-9 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <FileBadge2 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-medium text-sm">{pharmacyTypeLabel(l.type)}</h3>
+                    <Badge variant="outline" className={statusColor(l.status)}>{l.status}</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{l.number} · {l.issuingState} · expires {l.expirationDate || "—"}</p>
+                  {l.ledgerTxHash && (
+                    <div className="mt-2"><LedgerProofBadge txHash={l.ledgerTxHash} label="Manager-verified" size="sm" /></div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }
 function Empty({ message }: { message: string }) {
   return <Card className="border-dashed"><CardContent className="p-8 text-center text-sm text-muted-foreground">{message}</CardContent></Card>;
