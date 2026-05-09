@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useLocation, useRoute } from "wouter";
-import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus, Syringe, Calendar, Pill, BookOpen } from "lucide-react";
+import { Briefcase, CheckCircle2, Clock, MapPin, FileBadge2, Plus, Syringe, Calendar, Pill, BookOpen, Upload } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
 import type { Shift, License, Prescription, User, LaiAdministration } from "@/lib/types";
@@ -486,7 +486,7 @@ function Credentials() {
   const create = useMutation({
     mutationFn: async () => {
       const r = await apiRequest("POST", "/api/licenses", {
-        type, number, issuingState: state, expirationDate: exp || null,
+        type, number, issuingState: type === "form_1099" ? "--" : state, expirationDate: exp || null,
       });
       return r.json();
     },
@@ -520,20 +520,39 @@ function Credentials() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>License number</Label>
-                  <Input value={number} onChange={(e) => setNumber(e.target.value)} data-testid="input-credential-number" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>State</Label>
-                  <Input value={state} onChange={(e) => setState(e.target.value)} maxLength={2} data-testid="input-credential-state" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Expiration</Label>
-                <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-credential-exp" />
-              </div>
+              {type === "form_1099" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Attach and upload</Label>
+                    <label className="flex items-center gap-2 px-3 py-2 border border-dashed border-input rounded-md cursor-pointer hover:bg-muted/50 transition-colors text-sm text-muted-foreground" data-testid="input-credential-upload">
+                      <Upload className="h-4 w-4" />
+                      <span className="truncate flex-1">{number || "Click to attach signed 1099 form (PDF, JPG, PNG)"}</span>
+                      <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setNumber(e.target.files?.[0]?.name || "")} />
+                    </label>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Date of completion and signing</Label>
+                    <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-credential-exp" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>License number</Label>
+                      <Input value={number} onChange={(e) => setNumber(e.target.value)} data-testid="input-credential-number" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>State</Label>
+                      <Input value={state} onChange={(e) => setState(e.target.value)} maxLength={2} data-testid="input-credential-state" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Expiration</Label>
+                    <Input type="date" value={exp} onChange={(e) => setExp(e.target.value)} data-testid="input-credential-exp" />
+                  </div>
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button onClick={() => create.mutate()} disabled={!number || create.isPending} data-testid="button-submit-credential">
@@ -558,7 +577,7 @@ function Credentials() {
                     <h3 className="font-medium text-sm capitalize">{l.type.replace(/_/g, " ")}</h3>
                     <Badge variant="outline" className={statusColor(l.status)}>{l.status}</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{l.number} · {l.issuingState} · expires {l.expirationDate || "—"}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono">{l.number}{l.type === "form_1099" ? "" : ` · ${l.issuingState}`} · {l.type === "form_1099" ? `signed ${l.expirationDate || "—"}` : `expires ${l.expirationDate || "—"}`}</p>
                   {l.ledgerTxHash && (
                     <div className="mt-2"><LedgerProofBadge txHash={l.ledgerTxHash} label="Manager-verified" size="sm" /></div>
                   )}
