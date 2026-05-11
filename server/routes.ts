@@ -12,6 +12,26 @@ import {
 
 const MemoryStore = createMemoryStore(session);
 
+// Demo-only manager view: when the manager logs in, every list endpoint is
+// scoped to the original seeded demo signers. New self-registered users are
+// hidden from the manager dashboards so the control center always shows the
+// stable demo data set.
+async function getDemoUserIds(): Promise<Set<number>> {
+  const emails = [
+    "pharmacist@demo.huna",
+    "prescriber@demo.huna",
+    "pharmacy@demo.huna",
+    "manager@demo.huna",
+    "patient@demo.huna",
+  ];
+  const ids = new Set<number>();
+  for (const e of emails) {
+    const u = await storage.getUserByEmail(e);
+    if (u) ids.add(u.id);
+  }
+  return ids;
+}
+
 // Known long-acting injectable medications (alpha auto-detect list).
 // Matches case-insensitive substring against the drug name.
 const LAI_DRUGS = [
@@ -116,11 +136,16 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
   // ============================================================
   // Users
   // ============================================================
-  app.get("/api/users", requireAuth, async (req, res) => {
+  app.get("/api/users", requireAuth, async (req: any, res) => {
     const role = req.query.role as string | undefined;
     const laiCertified = req.query.laiCertified === "1" || req.query.laiCertified === "true";
     let list = role ? await storage.listUsersByRole(role) : [];
     if (laiCertified) list = list.filter((u: any) => u.laiCertified);
+    // Manager dashboards only show original demo signers.
+    if (req.session.role === "manager") {
+      const demoIds = await getDemoUserIds();
+      list = list.filter((u: any) => demoIds.has(u.id));
+    }
     res.json(list.map(({ password, ...u }) => u));
   });
 
@@ -143,10 +168,11 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     res.json(list.map(({ fileData, ...l }) => l));
   });
 
-  // Manager-only: list all pending licenses with user info
+  // Manager-only: list all pending licenses with user info (scoped to demo signers).
   app.get("/api/manager/licenses/pending", requireRole("manager"), async (req, res) => {
+    const demoIds = await getDemoUserIds();
     const all = await storage.listAllLicenses();
-    const pending = all.filter((l) => l.status === "pending");
+    const pending = all.filter((l) => l.status === "pending" && demoIds.has(l.userId));
     const result = await Promise.all(pending.map(async (l) => {
       const user = await storage.getUserById(l.userId);
       const { fileData, ...rest } = l;
@@ -523,6 +549,14 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       const lists = await Promise.all(mine.map((p) => storage.listPrescriptions({ patientId: p.id })));
       list = lists.flat();
     } else list = await storage.listPrescriptions();
+    if (role === "manager") {
+      const demoIds = await getDemoUserIds();
+      list = list.filter((p: any) =>
+        (p.prescriberId == null || demoIds.has(p.prescriberId)) &&
+        (p.pharmacyId == null || demoIds.has(p.pharmacyId)) &&
+        (p.mobilePharmacistId == null || demoIds.has(p.mobilePharmacistId))
+      );
+    }
     res.json(list);
   });
 
@@ -698,6 +732,13 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     if (role === "pharmacy") list = await storage.listShifts({ pharmacyId: req.session.userId });
     else if (role === "pharmacist") list = await storage.listShifts(); // pharmacists see all open shifts
     else list = await storage.listShifts();
+    if (role === "manager") {
+      const demoIds = await getDemoUserIds();
+      list = list.filter((s: any) =>
+        (s.pharmacyId == null || demoIds.has(s.pharmacyId)) &&
+        (s.pharmacistId == null || demoIds.has(s.pharmacistId))
+      );
+    }
     res.json(list);
   });
 
@@ -818,9 +859,14 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
   // ============================================================
   // Ledger (read-only)
   // ============================================================
-  app.get("/api/ledger", requireAuth, async (req, res) => {
+  app.get("/api/ledger", requireAuth, async (req: any, res) => {
     const limit = parseInt((req.query.limit as string) || "100");
-    res.json(await storage.listLedger(limit));
+    let list = await storage.listLedger(limit);
+    if (req.session.role === "manager") {
+      const demoIds = await getDemoUserIds();
+      list = list.filter((e: any) => e.signerUserId == null || demoIds.has(e.signerUserId));
+    }
+    res.json(list);
   });
 
   app.get("/api/ledger/wallet", requireAuth, async (req, res) => {
@@ -842,7 +888,31 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
   // ============================================================
   // Stats / overview
   // ============================================================
-  app.get("/api/stats", requireAuth, async (req, res) => {
-    res.json(await storage.getStats());
+  app.get("/api/stats", requireAuth, async (req: any, res) => {
+    const stats = await storage.getStats();
+    if (req.session.role === "manager") {
+      // Scope manager-facing stats to demo signers only.
+      const demoIds = await getDemoUserIds();
+      const allRx = await storage.listPrescriptions();
+      const demoRx = allRx.filter((p: any) =>
+        (p.prescriberId == null || demoIds.has(p.prescriberId)) &&
+        (p.pharmacyId == null || demoIds.has(p.pharmacyId)) &&
+        (p.mobilePharmacistId == null || demoIds.has(p.mobilePharmacistId))
+      );
+      const allShifts = await storage.listShifts();
+      const demoShifts = allShifts.filter((s: any) =>
+        (s.pharmacyId == null || demoIds.has(s.pharmacyId)) &&
+        (s.pharmacistId == null || demoIds.has(s.pharmacistId))
+      );
+      const allLedger = await storage.listLedger(10000);
+      const demoLedger = allLedger.filter((e: any) => e.signerUserId == null || demoIds.has(e.signerUserId));
+      return res.json({
+        users: demoIds.size,
+        prescriptions: demoRx.length,
+        shifts: demoShifts.length,
+        ledgerEntries: demoLedger.length,
+      });
+    }
+    res.json(stats);
   });
 }
