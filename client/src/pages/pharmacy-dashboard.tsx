@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Plus, Briefcase, Pill, Clock, ChevronDown, ChevronUp, Send, Receipt, BookOpen, FileBadge2, Building2 } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
-import type { Shift, Prescription, Claim, License } from "@/lib/types";
+import type { Shift, Prescription, Claim, License, User } from "@/lib/types";
 import { fmtDate, fmtMoney, statusColor, urgencyColor } from "@/lib/format";
 
 const NAV: NavGroup[] = [
@@ -357,7 +357,19 @@ function Shifts() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { data: shifts = [], isLoading } = useQuery<Shift[]>({ queryKey: ["/api/shifts"] });
+  // Newly-registered pharmacists available for staffing. The pharmacy view of
+  // /api/users?role=pharmacist already excludes its own org, but we also hide
+  // the seeded demo pharmacist so only self-registered pharmacists show.
+  const { data: pharmacists = [] } = useQuery<User[]>({
+    queryKey: ["/api/users", { role: "pharmacist" }],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/users?role=pharmacist");
+      return r.json();
+    },
+  });
+  const newPharmacists = pharmacists.filter((p) => p.email !== "pharmacist@demo.huna");
   const [open, setOpen] = useState(false);
+  const [assigneeId, setAssigneeId] = useState<string>("unassigned");
   const [form, setForm] = useState({
     title: "Floater pharmacist", date: "", startTime: "09:00", endTime: "17:00",
     hourlyRate: "85", location: "Honolulu, HI", urgency: "routine" as const, notes: "",
@@ -366,12 +378,22 @@ function Shifts() {
     mutationFn: async () => {
       const body = { ...form, hourlyRate: parseFloat(form.hourlyRate) };
       const r = await apiRequest("POST", "/api/shifts", body);
-      return r.json();
+      const created = await r.json();
+      // If the pharmacy pre-selected a pharmacist, auto-assign the shift.
+      if (assigneeId && assigneeId !== "unassigned" && created?.id) {
+        await apiRequest("POST", `/api/shifts/${created.id}/assign`, {
+          pharmacistId: parseInt(assigneeId, 10),
+        });
+      }
+      return created;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Shift posted" });
+      toast({
+        title: assigneeId !== "unassigned" ? "Shift posted and assigned" : "Shift posted",
+      });
       setOpen(false);
+      setAssigneeId("unassigned");
     },
   });
   const mine = shifts.filter((s) => s.pharmacyId === user?.id);
@@ -428,6 +450,29 @@ function Shifts() {
               <div className="space-y-1.5">
                 <Label>Notes</Label>
                 <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="input-shift-notes" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Assign pharmacist (optional)</Label>
+                <Select value={assigneeId} onValueChange={setAssigneeId}>
+                  <SelectTrigger data-testid="select-shift-pharmacist">
+                    <SelectValue placeholder="Leave open to the pharmacist marketplace" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64 overflow-y-auto">
+                    <SelectItem value="unassigned">Leave open to marketplace</SelectItem>
+                    {newPharmacists.length === 0 && (
+                      <div className="px-2 py-3 text-xs text-muted-foreground">No newly registered pharmacists yet.</div>
+                    )}
+                    {newPharmacists.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.fullName}
+                        {p.organizationName ? ` · ${p.organizationName}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Scroll to pick a newly registered pharmacist, or leave open so any verified pharmacist can accept.
+                </p>
               </div>
             </div>
             <DialogFooter>

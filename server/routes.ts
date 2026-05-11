@@ -768,6 +768,38 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     res.json(list);
   });
 
+  // Pharmacy or manager assigns a shift to a specific newly-registered pharmacist.
+  app.post("/api/shifts/:id/assign", requireRole("pharmacy", "manager"), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pharmacistId = parseInt(req.body?.pharmacistId);
+      if (!pharmacistId) return res.status(400).json({ error: "pharmacistId required" });
+      const target = await storage.getUserById(pharmacistId);
+      if (!target || target.role !== "pharmacist") {
+        return res.status(400).json({ error: "Target user is not a pharmacist" });
+      }
+      const s = await storage.acceptShift(id, pharmacistId);
+      if (!s) return res.status(404).json({ error: "Shift not found" });
+      const signer = await storage.getUserById(req.session.userId);
+      const docPayload = {
+        shift_id: s.id, pharmacy_id: s.pharmacyId, pharmacist_id: pharmacistId,
+        date: s.date, assigned_at: new Date().toISOString(), assigned_by: req.session.userId,
+      };
+      const result = await broadcastToXRPL(docPayload, "shift", `Shift-${s.id}`, "assign");
+      await storage.recordLedger({
+        entityType: "shift", entityId: s.id, action: "assign",
+        documentHash: result.documentHash, txHash: result.txHash,
+        ledgerSequence: result.ledgerSequence,
+        signerUserId: req.session.userId, signerName: signer?.fullName ?? null,
+        network: "testnet", explorerUrl: result.explorerUrl,
+      } as any);
+      res.json({ shift: s, broadcast: result });
+    } catch (e: any) {
+      console.error("[shift assign]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/shifts/:id/accept", requireRole("pharmacist"), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);

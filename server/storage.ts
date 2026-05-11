@@ -528,10 +528,34 @@ class SQLiteStorage implements IStorage {
 
 export const storage = new SQLiteStorage();
 
+// Idempotent: ensure the 3 Medipharm pharmacist accounts always exist so the
+// pharmacy Staffing dropdown has "newly registered" pharmacists to pick from.
+async function seedMedipharmPharmacists() {
+  const medipharm = [
+    { email: "scottkim@yahoo.com",     fullName: "Scott Kim",   state: "HI" },
+    { email: "cariniimi@gmail.com",   fullName: "Cari Niimi",  state: "HI" },
+    { email: "whitdang@yahoo.com",    fullName: "Nguyet Dang", state: "HI" },
+  ];
+  for (const m of medipharm) {
+    const existing = await storage.getUserByEmail(m.email);
+    if (existing) continue;
+    const u = await storage.createUser({
+      email: m.email,
+      password: "demo1234",
+      role: "pharmacist",
+      fullName: m.fullName,
+      organizationName: "Medipharm",
+      state: m.state,
+    } as any);
+    // Newly registered — not pre-verified; manager will verify.
+  }
+}
+
 // Seed demo accounts on first run
 export async function seedIfEmpty() {
+  await seedMedipharmPharmacists();
   const existing = (sqlite.prepare("SELECT COUNT(*) as c FROM users").get() as any).c;
-  if (existing > 0) return;
+  if (existing > 3) return; // demo seed already ran (5 demo + 3 medipharm ≥ 8)
   console.log("[seed] Creating demo accounts...");
 
   const demo = [
