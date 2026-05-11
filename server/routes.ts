@@ -800,6 +800,73 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     }
   });
 
+  // Manager-only: list shifts that are actively assigned to an in-scope pharmacist
+  // and have NOT yet been verified by a manager. Scope rules match the rest of the
+  // manager dashboards (demo manager sees demo signers, non-demo manager sees the
+  // inverse — e.g. Scott Dahlem sees Medipharm employee shifts).
+  app.get("/api/manager/shifts/pending", requireRole("manager"), async (req: any, res) => {
+    const scope = await getManagerScope(req.session.userId);
+    const all = await storage.listShifts();
+    const ledger = await storage.listLedger(10000);
+    const verifiedShiftIds = new Set(
+      ledger
+        .filter((e: any) => e.entityType === "shift" && e.action === "verify")
+        .map((e: any) => e.entityId)
+    );
+    const pending = all.filter((s: any) => {
+      // Must be actively assigned (pharmacist pre-assigned or accepted from marketplace)
+      const isActive = s.pharmacistId != null && (s.status === "accepted" || s.status === "in_progress");
+      if (!isActive) return false;
+      if (verifiedShiftIds.has(s.id)) return false;
+      // Apply manager scope to the assigned pharmacist and posting pharmacy
+      return managerSees(scope, s.pharmacistId) && managerSees(scope, s.pharmacyId);
+    });
+    const result = await Promise.all(pending.map(async (s: any) => {
+      const pharmacist = s.pharmacistId ? await storage.getUserById(s.pharmacistId) : null;
+      const pharmacy = s.pharmacyId ? await storage.getUserById(s.pharmacyId) : null;
+      const safe = (u: any) => u ? (() => { const { password, ...rest } = u; return rest; })() : null;
+      return { ...s, pharmacist: safe(pharmacist), pharmacy: safe(pharmacy) };
+    }));
+    res.json(result);
+  });
+
+  // Manager verifies an actively-assigned shift, anchoring a `verify` action on XRPL.
+  app.post("/api/shifts/:id/verify", requireRole("manager"), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const all = await storage.listShifts();
+      const s = all.find((x: any) => x.id === id);
+      if (!s) return res.status(404).json({ error: "Shift not found" });
+      if (s.pharmacistId == null) return res.status(400).json({ error: "Shift has no assigned pharmacist" });
+      const pharmacist = await storage.getUserById(s.pharmacistId);
+      const pharmacy = await storage.getUserById(s.pharmacyId);
+      const signer = await storage.getUserById(req.session.userId);
+      const docPayload = {
+        shift_id: s.id,
+        pharmacy_id: s.pharmacyId,
+        pharmacy_name: pharmacy?.organizationName ?? pharmacy?.fullName ?? null,
+        pharmacist_id: s.pharmacistId,
+        pharmacist_name: pharmacist?.fullName ?? null,
+        date: s.date,
+        title: s.title,
+        verified_by_user_id: req.session.userId,
+        verified_at: new Date().toISOString(),
+      };
+      const result = await broadcastToXRPL(docPayload, "shift", `Shift-${s.id}`, "verify");
+      await storage.recordLedger({
+        entityType: "shift", entityId: s.id, action: "verify",
+        documentHash: result.documentHash, txHash: result.txHash,
+        ledgerSequence: result.ledgerSequence,
+        signerUserId: req.session.userId, signerName: signer?.fullName ?? null,
+        network: "testnet", explorerUrl: result.explorerUrl,
+      } as any);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      console.error("[shift verify]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/shifts/:id/accept", requireRole("pharmacist"), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);

@@ -7,11 +7,13 @@ import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard } from "lucide-react";
+import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
-import type { LedgerEntry, License, User } from "@/lib/types";
+import type { LedgerEntry, License, User, Shift } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
+
+type PendingShift = Shift & { pharmacist?: User | null; pharmacy?: User | null };
 
 const NAV: NavGroup[] = [
   {
@@ -25,6 +27,7 @@ const NAV: NavGroup[] = [
     label: "Compliance",
     items: [
       { label: "Verify licenses", path: "/dashboard/manager/verify", testId: "nav-manager-verify", icon: ShieldCheck },
+      { label: "Verify shifts", path: "/dashboard/manager/verify-shifts", testId: "nav-manager-verify-shifts", icon: Briefcase },
       { label: "Ledger feed", path: "/dashboard/manager/ledger", testId: "nav-manager-ledger", icon: Database },
     ],
   },
@@ -43,6 +46,7 @@ export default function ManagerDashboard() {
     <AppShell title="Operations control center" subtitle="HunaDoc network health, credential verification, and the live XRPL feed." nav={NAV}>
       {tab === "overview" && <Overview />}
       {tab === "verify" && <VerifyLicenses />}
+      {tab === "verify-shifts" && <VerifyShifts />}
       {tab === "ledger" && <LedgerFeed />}
       {tab === "users" && <UsersList />}
       {tab === "help" && <HelpGuide role="manager" />}
@@ -177,6 +181,79 @@ function VerifyLicenses() {
                 </div>
               </div>
               <Button size="sm" onClick={() => verify.mutate(l.id)} disabled={verify.isPending} data-testid={`button-verify-${l.id}`}>
+                <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Verify + anchor
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VerifyShifts() {
+  const { toast } = useToast();
+  const { data: pending = [], isLoading } = useQuery<PendingShift[]>({
+    queryKey: ["/api/manager/shifts/pending"],
+    queryFn: async () => (await apiRequest("GET", "/api/manager/shifts/pending")).json(),
+    retry: false,
+  });
+  const verify = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/shifts/${id}/verify`);
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/manager/shifts/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      toast({
+        title: "Shift verified and anchored",
+        description: data?.txHash ? `XRPL tx ${data.txHash.slice(0, 12)}…` : undefined,
+      });
+    },
+  });
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Verify actively assigned shifts</h2>
+        <p className="text-xs text-muted-foreground">
+          Shifts pre-assigned to an employed pharmacist (e.g. Medipharm) appear here. Verifying anchors a SHA-256 of the shift record to the XRPL Testnet.
+        </p>
+      </div>
+      {isLoading && <Skel />}
+      {!isLoading && pending.length === 0 && (
+        <Empty message="No actively assigned shifts awaiting verification. New employed-pharmacist shifts will appear here." />
+      )}
+      <div className="space-y-2">
+        {pending.map((s) => (
+          <Card key={s.id} data-testid={`card-shift-${s.id}`}>
+            <CardContent className="p-4 flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-sm">{s.title}</span>
+                  <Badge variant="outline" className={statusColor(s.status)}>{s.status}</Badge>
+                  {s.urgency && (
+                    <Badge variant="outline" className="text-[10px] capitalize">{s.urgency}</Badge>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Pharmacist: {s.pharmacist?.fullName ?? "—"}
+                  {s.pharmacist?.organizationName ? ` · ${s.pharmacist.organizationName}` : ""}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Pharmacy: {s.pharmacy?.organizationName ?? s.pharmacy?.fullName ?? "—"}
+                </div>
+                <div className="text-xs font-mono text-muted-foreground mt-0.5">
+                  {s.date} · {s.startTime}–{s.endTime} · {s.location}
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => verify.mutate(s.id)}
+                disabled={verify.isPending}
+                data-testid={`button-verify-shift-${s.id}`}
+              >
                 <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Verify + anchor
               </Button>
             </CardContent>
