@@ -368,12 +368,37 @@ function Shifts() {
     },
   });
   const newPharmacists = pharmacists.filter((p) => p.email !== "pharmacist@demo.huna");
+  // Medipharm employed pharmacists (permanent employees, not floaters).
+  const medipharmEmployees = newPharmacists.filter(
+    (p) => (p.organizationName ?? "").toLowerCase() === "medipharm"
+  );
   const [open, setOpen] = useState(false);
+  // "floater" = open marketplace shift; "employed" = pre-assigned to a Medipharm employee.
+  const [shiftMode, setShiftMode] = useState<"floater" | "employed">("floater");
   const [assigneeId, setAssigneeId] = useState<string>("unassigned");
   const [form, setForm] = useState({
     title: "Floater pharmacist", date: "", startTime: "09:00", endTime: "17:00",
     hourlyRate: "85", location: "Honolulu, HI", urgency: "routine" as const, notes: "",
   });
+  // Switch the default title and assignee list as the operator toggles between
+  // a marketplace floater shift and a permanent employee shift.
+  const handleShiftModeChange = (mode: "floater" | "employed") => {
+    setShiftMode(mode);
+    if (mode === "employed") {
+      setForm((f) => ({
+        ...f,
+        title: f.title === "Floater pharmacist" ? "Employed Pharmacist" : f.title,
+      }));
+      // Default to first Medipharm employee if available, otherwise unassigned.
+      setAssigneeId(medipharmEmployees[0] ? String(medipharmEmployees[0].id) : "unassigned");
+    } else {
+      setForm((f) => ({
+        ...f,
+        title: f.title === "Employed Pharmacist" ? "Floater pharmacist" : f.title,
+      }));
+      setAssigneeId("unassigned");
+    }
+  };
   const post = useMutation({
     mutationFn: async () => {
       const body = { ...form, hourlyRate: parseFloat(form.hourlyRate) };
@@ -394,6 +419,8 @@ function Shifts() {
       });
       setOpen(false);
       setAssigneeId("unassigned");
+      setShiftMode("floater");
+      setForm((f) => ({ ...f, title: "Floater pharmacist" }));
     },
   });
   const mine = shifts.filter((s) => s.pharmacyId === user?.id);
@@ -408,6 +435,34 @@ function Shifts() {
           <DialogContent>
             <DialogHeader><DialogTitle>Post staffing shift</DialogTitle></DialogHeader>
             <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Shift type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={shiftMode === "floater" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleShiftModeChange("floater")}
+                    data-testid="button-shift-mode-floater"
+                  >
+                    Floater (marketplace)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={shiftMode === "employed" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleShiftModeChange("employed")}
+                    data-testid="button-shift-mode-employed"
+                  >
+                    Employed Pharmacist
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {shiftMode === "employed"
+                    ? "Permanent employee — pre-assigns the shift to an active Medipharm pharmacist."
+                    : "Open marketplace shift — any verified pharmacist can accept."}
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label>Title</Label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="input-shift-title" />
@@ -451,32 +506,67 @@ function Shifts() {
                 <Label>Notes</Label>
                 <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="input-shift-notes" />
               </div>
-              <div className="space-y-1.5">
-                <Label>Assign pharmacist (optional)</Label>
-                <Select value={assigneeId} onValueChange={setAssigneeId}>
-                  <SelectTrigger data-testid="select-shift-pharmacist">
-                    <SelectValue placeholder="Leave open to the pharmacist marketplace" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64 overflow-y-auto">
-                    <SelectItem value="unassigned">Leave open to marketplace</SelectItem>
-                    {newPharmacists.length === 0 && (
-                      <div className="px-2 py-3 text-xs text-muted-foreground">No newly registered pharmacists yet.</div>
-                    )}
-                    {newPharmacists.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.fullName}
-                        {p.organizationName ? ` · ${p.organizationName}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Scroll to pick a newly registered pharmacist, or leave open so any verified pharmacist can accept.
-                </p>
-              </div>
+              {shiftMode === "employed" ? (
+                <div className="space-y-1.5">
+                  <Label>Actively assigned</Label>
+                  <Select value={assigneeId} onValueChange={setAssigneeId}>
+                    <SelectTrigger data-testid="select-shift-employee">
+                      <SelectValue placeholder="Select a Medipharm pharmacist" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64 overflow-y-auto">
+                      {medipharmEmployees.length === 0 && (
+                        <div className="px-2 py-3 text-xs text-muted-foreground">No Medipharm pharmacists registered yet.</div>
+                      )}
+                      {medipharmEmployees.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.fullName}
+                          {p.organizationName ? ` · ${p.organizationName}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Scroll to pick a permanent Medipharm employee. The shift will be pre-assigned and anchored to the ledger.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Assign pharmacist (optional)</Label>
+                  <Select value={assigneeId} onValueChange={setAssigneeId}>
+                    <SelectTrigger data-testid="select-shift-pharmacist">
+                      <SelectValue placeholder="Leave open to the pharmacist marketplace" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64 overflow-y-auto">
+                      <SelectItem value="unassigned">Leave open to marketplace</SelectItem>
+                      {newPharmacists.length === 0 && (
+                        <div className="px-2 py-3 text-xs text-muted-foreground">No newly registered pharmacists yet.</div>
+                      )}
+                      {newPharmacists.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.fullName}
+                          {p.organizationName ? ` · ${p.organizationName}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Scroll to pick a newly registered pharmacist, or leave open so any verified pharmacist can accept.
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button onClick={() => post.mutate()} disabled={!form.date || post.isPending} data-testid="button-submit-shift">Post shift</Button>
+              <Button
+                onClick={() => post.mutate()}
+                disabled={
+                  !form.date ||
+                  post.isPending ||
+                  (shiftMode === "employed" && (assigneeId === "unassigned" || !assigneeId))
+                }
+                data-testid="button-submit-shift"
+              >
+                {shiftMode === "employed" ? "Post and assign" : "Post shift"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
