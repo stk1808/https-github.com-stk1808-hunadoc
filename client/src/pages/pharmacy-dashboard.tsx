@@ -369,9 +369,17 @@ function Shifts() {
   });
   const newPharmacists = pharmacists.filter((p) => p.email !== "pharmacist@demo.huna");
   // Medipharm employed pharmacists (permanent employees, not floaters).
-  const medipharmEmployees = newPharmacists.filter(
-    (p) => (p.organizationName ?? "").toLowerCase() === "medipharm"
-  );
+  // Match by org name (case-insensitive, trimmed) OR by the three known emails,
+  // so the picker always surfaces all three even if org metadata varies.
+  const MEDIPHARM_EMAILS = new Set([
+    "scottkim@yahoo.com",
+    "cariniimi@gmail.com",
+    "whitdang@yahoo.com",
+  ]);
+  const medipharmEmployees = newPharmacists.filter((p) => {
+    const org = (p.organizationName ?? "").trim().toLowerCase();
+    return org === "medipharm" || MEDIPHARM_EMAILS.has((p.email ?? "").toLowerCase());
+  });
   const [open, setOpen] = useState(false);
   // "floater" = open marketplace shift; "employed" = pre-assigned to a Medipharm employee.
   const [shiftMode, setShiftMode] = useState<"floater" | "employed">("floater");
@@ -385,6 +393,8 @@ function Shifts() {
   const handleShiftModeChange = (mode: "floater" | "employed") => {
     setShiftMode(mode);
     if (mode === "employed") {
+      // Force a fresh fetch so the picker always shows the latest seeded employees.
+      queryClient.invalidateQueries({ queryKey: ["/api/users", { role: "pharmacist" }] });
       setForm((f) => ({
         ...f,
         title: f.title === "Floater pharmacist" ? "Employed Pharmacist" : f.title,
