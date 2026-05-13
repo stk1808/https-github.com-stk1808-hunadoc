@@ -618,6 +618,14 @@ export async function ensureOwnerAccount() {
     { email: "medipharmpharmacy@yahoo.com", role: "pharmacy", fullName: "Medipharm Pharmacy", organizationName: "Medipharm" },
     { email: "medipharm808@gmail.com", role: "pharmacy", fullName: "Medipharm 808", organizationName: "Medipharm" },
   ];
+  // One-shot recovery list: on next boot, these accounts have their password
+  // force-reset to DEFAULT_PASSWORD and must_change_password cleared so they
+  // can sign in immediately. Remove an email from this list after the user has
+  // logged in and reset their own password.
+  const passwordResetList = new Set<string>([
+    "medipharm808@gmail.com",
+  ]);
+
   for (const acct of trustedAccounts) {
     try {
       const existing = await storage.getUserByEmail(acct.email);
@@ -640,7 +648,16 @@ export async function ensureOwnerAccount() {
         sqlite.exec(
           `UPDATE users SET approval_status = 'approved', is_demo = 0, verified = 1 WHERE id = ${existing.id}`
         );
-        console.log(`[seed] Trusted account ${acct.email} verified (approved, non-demo, full access)`);
+        // One-shot password recovery for accounts in the reset list.
+        if (passwordResetList.has(acct.email.toLowerCase())) {
+          await storage.updateUserPassword(existing.id, DEFAULT_PASSWORD);
+          sqlite.exec(
+            `UPDATE users SET must_change_password = 0 WHERE id = ${existing.id}`
+          );
+          console.log(`[seed] PASSWORD RESET: ${acct.email} → ${DEFAULT_PASSWORD}`);
+        } else {
+          console.log(`[seed] Trusted account ${acct.email} verified (approved, non-demo, full access)`);
+        }
       }
     } catch (e) {
       console.warn(`[seed] ensureOwnerAccount failed for ${acct.email}:`, (e as Error).message);
