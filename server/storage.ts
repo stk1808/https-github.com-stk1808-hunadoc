@@ -616,6 +616,7 @@ export async function ensureOwnerAccount() {
     { email: "whitdang@yahoo.com", role: "manager", fullName: "Whit Dang", organizationName: "HunaDoc" },
     { email: "cariniimi@gmail.com", role: "manager", fullName: "Carin Iimi", organizationName: "HunaDoc" },
     { email: "medipharmpharmacy@yahoo.com", role: "pharmacy", fullName: "Medipharm Pharmacy", organizationName: "Medipharm" },
+    { email: "medipharm808@gmail.com", role: "pharmacy", fullName: "Medipharm 808", organizationName: "Medipharm" },
   ];
   for (const acct of trustedAccounts) {
     try {
