@@ -62,14 +62,32 @@ export default function PrescriberDashboard() {
   );
 }
 
+// Rotating roster of synthetic test patient names (NEVER real people).
+// One is suggested each time the prescriber opens "Add patient (TEST)".
+const TEST_PATIENT_PRESETS = [
+  { firstName: "Lani", lastName: "Kahale", dob: "1971-03-14", sex: "F", email: "lani.k@example.test", phone: "+1-808-555-0171", allergies: "NKDA" },
+  { firstName: "Makoa", lastName: "Paʻahana", dob: "1965-08-22", sex: "M", email: "makoa.p@example.test", phone: "+1-808-555-0204", allergies: "Penicillin" },
+  { firstName: "Noelani", lastName: "Akana", dob: "1983-11-02", sex: "F", email: "noelani.a@example.test", phone: "+1-808-555-0298", allergies: "NKDA" },
+  { firstName: "Keoni", lastName: "Mahoe", dob: "1949-06-30", sex: "M", email: "keoni.m@example.test", phone: "+1-808-555-0317", allergies: "Sulfa" },
+  { firstName: "Iolana", lastName: "Kalani", dob: "1992-01-19", sex: "F", email: "iolana.k@example.test", phone: "+1-808-555-0145", allergies: "Latex" },
+];
+
+function randomTestPatient() {
+  const base = TEST_PATIENT_PRESETS[Math.floor(Math.random() * TEST_PATIENT_PRESETS.length)];
+  const mrnSuffix = Math.floor(1000 + Math.random() * 9000);
+  return { mrn: `MRN-885-${mrnSuffix}`, ...base };
+}
+
 function Patients() {
   const { toast } = useToast();
   const { data: patients = [], isLoading } = useQuery<Patient[]>({ queryKey: ["/api/patients"] });
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    mrn: "", firstName: "", lastName: "", dob: "", sex: "M",
-    email: "", phone: "", allergies: "",
-  });
+  const [form, setForm] = useState(() => randomTestPatient());
+  // Reshuffle the synthetic preset every time the dialog opens.
+  function openDialog() {
+    setForm(randomTestPatient());
+    setOpen(true);
+  }
   const create = useMutation({
     mutationFn: async () => {
       const r = await apiRequest("POST", "/api/patients", form);
@@ -79,7 +97,7 @@ function Patients() {
       queryClient.invalidateQueries({ queryKey: ["/api/patients"] });
       toast({ title: "Patient added" });
       setOpen(false);
-      setForm({ mrn: "", firstName: "", lastName: "", dob: "", sex: "M", email: "", phone: "", allergies: "" });
+      setForm(randomTestPatient());
     },
   });
   return (
@@ -89,12 +107,15 @@ function Patients() {
           <h2 className="text-base font-semibold">Patients ({patients.length})</h2>
           <p className="text-xs text-muted-foreground">Test-only records. Use synthetic identifiers.</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => (v ? openDialog() : setOpen(false))}>
           <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-add-patient"><Plus className="h-3.5 w-3.5 mr-1" />New patient</Button>
+            <Button size="sm" data-testid="button-add-patient" onClick={(e) => { e.preventDefault(); openDialog(); }}><Plus className="h-3.5 w-3.5 mr-1" />New patient</Button>
           </DialogTrigger>
           <DialogContent>
-            <DialogHeader><DialogTitle>Add patient (TEST)</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Add patient (TEST)</DialogTitle>
+              <p className="text-xs text-muted-foreground">Fields are prefilled with a synthetic test name. Do not enter real patient or staff identifiers.</p>
+            </DialogHeader>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
