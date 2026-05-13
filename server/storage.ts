@@ -601,37 +601,48 @@ async function seedMedipharmPharmacists() {
   }
 }
 
-// Idempotent: ensures the real Operations Manager (lavishluau@gmail.com) exists
-// and has full, approved, non-demo access on every boot. If the account is
-// missing, it is created with the default password "HunaDoc2026!" and forced to
-// change it on first login. Existing accounts have their flags repaired.
+// Idempotent: ensures the real Operations Manager + trusted early account holders
+// exist on every boot with full, approved, non-demo access. If an account is
+// missing it is created with the default password "HunaDoc2026!" and forced to
+// change it on first login. Existing accounts have their access flags repaired
+// (in case they were registered before the access-control rollout, which would
+// otherwise leave them stuck in the pending queue).
 export async function ensureOwnerAccount() {
-  const OWNER_EMAIL = "lavishluau@gmail.com";
   const DEFAULT_PASSWORD = "HunaDoc2026!";
-  try {
-    const existing = await storage.getUserByEmail(OWNER_EMAIL);
-    if (!existing) {
-      const u = await storage.createUser({
-        email: OWNER_EMAIL,
-        password: DEFAULT_PASSWORD,
-        role: "manager",
-        fullName: "HunaDoc Operations Manager",
-        organizationName: "HunaDoc Operations",
-        state: "HI",
-      } as any);
-      sqlite.exec(
-        `UPDATE users SET approval_status = 'approved', is_demo = 0, must_change_password = 1, verified = 1 WHERE id = ${u.id}`
-      );
-      console.log(`[seed] Created owner account ${OWNER_EMAIL} (default password: ${DEFAULT_PASSWORD}, must change on first login)`);
-    } else {
-      // Repair flags in case the account was created before the access-control rollout.
-      sqlite.exec(
-        `UPDATE users SET approval_status = 'approved', is_demo = 0, verified = 1 WHERE id = ${existing.id}`
-      );
-      console.log(`[seed] Owner account ${OWNER_EMAIL} verified (approved, non-demo, full access)`);
+  const trustedAccounts: Array<{ email: string; role: string; fullName: string; organizationName?: string }> = [
+    { email: "lavishluau@gmail.com", role: "manager", fullName: "HunaDoc Operations Manager", organizationName: "HunaDoc Operations" },
+    { email: "scotttwkim@yahoo.com", role: "manager", fullName: "Scott Kim", organizationName: "HunaDoc" },
+    { email: "stk1808@yahoo.com", role: "manager", fullName: "Scott Kim", organizationName: "HunaDoc" },
+    { email: "whitdang@yahoo.com", role: "manager", fullName: "Whit Dang", organizationName: "HunaDoc" },
+    { email: "cariniimi@gmail.com", role: "manager", fullName: "Carin Iimi", organizationName: "HunaDoc" },
+  ];
+  for (const acct of trustedAccounts) {
+    try {
+      const existing = await storage.getUserByEmail(acct.email);
+      if (!existing) {
+        const u = await storage.createUser({
+          email: acct.email,
+          password: DEFAULT_PASSWORD,
+          role: acct.role,
+          fullName: acct.fullName,
+          organizationName: acct.organizationName,
+          state: "HI",
+        } as any);
+        sqlite.exec(
+          `UPDATE users SET approval_status = 'approved', is_demo = 0, must_change_password = 1, verified = 1 WHERE id = ${u.id}`
+        );
+        console.log(`[seed] Created trusted account ${acct.email} (default password: ${DEFAULT_PASSWORD}, must change on first login)`);
+      } else {
+        // Repair access flags. Do NOT touch the user's password or mustChangePassword
+        // flag — they may have already set their own password.
+        sqlite.exec(
+          `UPDATE users SET approval_status = 'approved', is_demo = 0, verified = 1 WHERE id = ${existing.id}`
+        );
+        console.log(`[seed] Trusted account ${acct.email} verified (approved, non-demo, full access)`);
+      }
+    } catch (e) {
+      console.warn(`[seed] ensureOwnerAccount failed for ${acct.email}:`, (e as Error).message);
     }
-  } catch (e) {
-    console.warn("[seed] ensureOwnerAccount failed:", (e as Error).message);
   }
 }
 
