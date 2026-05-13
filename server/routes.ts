@@ -96,6 +96,52 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     res.json({ ok: true, service: "hunadoc", time: new Date().toISOString() });
   });
 
+  // Public "Join the Team" / partnership inbound. Stores submissions to a
+  // simple JSON log on the persistent disk so the founder can review later.
+  // No PHI is collected. Submissions are rate-limited by IP via in-memory map.
+  const contactRate: Map<string, number[]> = new Map();
+  app.post("/api/contact", async (req: any, res) => {
+    try {
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || "unknown";
+      const now = Date.now();
+      const hits = (contactRate.get(ip) || []).filter((t) => now - t < 10 * 60 * 1000);
+      if (hits.length >= 5) return res.status(429).json({ error: "Too many submissions. Please try again later." });
+      hits.push(now); contactRate.set(ip, hits);
+
+      const { role, name, email, phone, message, kind } = req.body || {};
+      if (!email || typeof email !== "string" || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+      const safe = (v: any, max = 500) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+      const wordCount = safe(message, 2000).split(/\s+/).filter(Boolean).length;
+      if (wordCount > 50) return res.status(400).json({ error: "Message must be 50 words or fewer." });
+
+      const entry = {
+        receivedAt: new Date().toISOString(),
+        kind: safe(kind, 32) || "join_team",
+        role: safe(role, 64),
+        name: safe(name, 120),
+        email: safe(email, 200),
+        phone: safe(phone, 60),
+        message: safe(message, 2000),
+        ip,
+      };
+
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const dataDir = process.env.DATA_DIR || "./data";
+      try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+      const logPath = path.join(dataDir, "contact-submissions.jsonl");
+      fs.appendFileSync(logPath, JSON.stringify(entry) + "\n");
+
+      console.log(`[contact] ${entry.kind} from ${entry.email} (${entry.role || "—"})`);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[contact]", e);
+      res.status(500).json({ error: "Submission failed. Please try again." });
+    }
+  });
+
   // ============================================================
   // Auth
   // ============================================================
@@ -796,6 +842,28 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       res.json({ shift: s, broadcast: result });
     } catch (e: any) {
       console.error("[shift assign]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Manager-only: read public Join-the-Team / Investor submissions stored on disk.
+  // Surfaces inbound contact submissions inside the Operations control center so
+  // the founder can review them from the manager dashboard.
+  app.get("/api/manager/contact-submissions", requireRole("manager"), async (_req: any, res) => {
+    try {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const dataDir = process.env.DATA_DIR || "./data";
+      const logPath = path.join(dataDir, "contact-submissions.jsonl");
+      if (!fs.existsSync(logPath)) return res.json([]);
+      const raw = fs.readFileSync(logPath, "utf8");
+      const lines = raw.split("\n").filter(Boolean);
+      const entries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      // Newest first
+      entries.sort((a: any, b: any) => (b.receivedAt || "").localeCompare(a.receivedAt || ""));
+      res.json(entries);
+    } catch (e: any) {
+      console.error("[contact submissions]", e);
       res.status(500).json({ error: e.message });
     }
   });

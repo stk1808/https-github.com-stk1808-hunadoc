@@ -6,12 +6,15 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/components/AuthContext";
 import { HunaDocLogo } from "@/components/HunaDocLogo";
 import { TestDataBanner } from "@/components/TestDataBanner";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ShieldCheck, Activity, Stethoscope, Building2, ClipboardList, User } from "lucide-react";
+import { ShieldCheck, Activity, Stethoscope, Building2, ClipboardList, User, HeartHandshake, Briefcase, PlayCircle } from "lucide-react";
+import pitchVideoUrl from "@assets/video/hunadoc-pitch.mp4?url";
+import pitchPosterUrl from "@assets/video/hunadoc-pitch-poster.jpg?url";
 import type { Role } from "@/lib/types";
 
 const DEMO_ACCOUNTS: { role: Role; email: string; name: string; icon: any }[] = [
@@ -141,6 +144,10 @@ export default function LoginPage() {
               <Feature icon={Stethoscope} title="Telehealth + eRx" desc="Sign and route in one motion" />
               <Feature icon={ClipboardList} title="Auditable ledger" desc="Public ledger sequence numbers, anytime" />
             </div>
+
+            <JoinTheTeam />
+
+            <InvestorPartnership />
           </div>
 
           <div className="text-xs text-muted-foreground relative">
@@ -341,6 +348,164 @@ function Feature({ icon: Icon, title, desc }: { icon: any; title: string; desc: 
         <div className="text-sm font-medium">{title}</div>
         <div className="text-xs text-muted-foreground">{desc}</div>
       </div>
+    </div>
+  );
+}
+
+// Public "Join the Team" form. Visitors select a role, leave a short note (50
+// words max), and provide return contact info. Submissions are stored on the
+// server and surfaced inside the Manager dashboard.
+const JOIN_ROLES = [
+  { value: "prescriber", label: "Prescriber" },
+  { value: "pharmacist", label: "Pharmacist" },
+  { value: "pharmacy", label: "Pharmacy" },
+  { value: "mental_health", label: "Mental Health / Outreach program" },
+  { value: "investor", label: "Investor / Partnership" },
+];
+const MAX_JOIN_WORDS = 50;
+
+function JoinTheTeam() {
+  const { toast } = useToast();
+  const [role, setRole] = useState<string>("prescriber");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const wordCount = message.trim() ? message.trim().split(/\s+/).length : 0;
+  const overLimit = wordCount > MAX_JOIN_WORDS;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (overLimit) {
+      toast({ title: "Message too long", description: `Please keep it to ${MAX_JOIN_WORDS} words or fewer.`, variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await apiRequest("POST", "/api/contact", { kind: "join_team", role, name, email, phone, message });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || "Submission failed");
+      toast({ title: "Thank you", description: "Your message has been received. The HunaDoc team will reach back to you shortly." });
+      setName(""); setEmail(""); setPhone(""); setMessage("");
+    } catch (err: any) {
+      toast({ title: "Could not submit", description: err.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 max-w-md pt-2">
+      <div className="flex items-center gap-2">
+        <HeartHandshake className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold tracking-tight">Join the Team</h2>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Prescriber, pharmacist, pharmacy, or mental health / outreach program — tell us how you'd like to plug in. Replies route directly to HunaDoc operations.
+      </p>
+      <form onSubmit={submit} className="space-y-2.5">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="col-span-2 sm:col-span-1 space-y-1">
+            <Label className="text-xs">I am a</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger className="h-9 text-sm" data-testid="select-join-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {JOIN_ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2 sm:col-span-1 space-y-1">
+            <Label className="text-xs">Full name</Label>
+            <Input className="h-9 text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" data-testid="input-join-name" />
+          </div>
+          <div className="col-span-2 sm:col-span-1 space-y-1">
+            <Label className="text-xs">Return email</Label>
+            <Input className="h-9 text-sm" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" data-testid="input-join-email" />
+          </div>
+          <div className="col-span-2 sm:col-span-1 space-y-1">
+            <Label className="text-xs">Phone (optional)</Label>
+            <Input className="h-9 text-sm" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 000 0000" data-testid="input-join-phone" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Message (up to {MAX_JOIN_WORDS} words)</Label>
+            <span className={`text-[10px] tabular-nums ${overLimit ? "text-destructive" : "text-muted-foreground"}`}>
+              {wordCount}/{MAX_JOIN_WORDS}
+            </span>
+          </div>
+          <Textarea
+            rows={3}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Briefly describe your role, organization, and what you'd like to explore with HunaDoc."
+            data-testid="input-join-message"
+            className="text-sm resize-none"
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={busy || overLimit || !email} data-testid="button-join-submit">
+          {busy ? "Sending…" : "Send message"}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+// Investor / Partnership block. Plays the 4-minute HunaDoc pitch video inline.
+function InvestorPartnership() {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="space-y-3 max-w-md pt-2">
+      <div className="flex items-center gap-2">
+        <Briefcase className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold tracking-tight">Investor / Partnership</h2>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Watch the HunaDoc investor pitch — a 4-minute walkthrough of the problem, the platform, and the market opportunity.
+      </p>
+      <div
+        className="relative rounded-lg overflow-hidden border border-border bg-black aspect-video group cursor-pointer"
+        data-testid="button-play-pitch"
+        onClick={() => setPlaying(true)}
+      >
+        {!playing ? (
+          <>
+            <img
+              src={pitchPosterUrl}
+              alt="HunaDoc investor pitch video"
+              className="absolute inset-0 w-full h-full object-cover opacity-80"
+            />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-t from-black/70 via-black/20 to-transparent">
+              <div className="h-14 w-14 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center group-hover:scale-105 transition-transform shadow-lg">
+                <PlayCircle className="h-8 w-8" />
+              </div>
+              <div className="text-xs font-medium text-white drop-shadow">
+                HunaDoc investor pitch · ~4 minutes
+              </div>
+            </div>
+          </>
+        ) : (
+          <video
+            src={pitchVideoUrl}
+            poster={pitchPosterUrl}
+            controls
+            autoPlay
+            className="absolute inset-0 w-full h-full"
+            data-testid="video-pitch"
+          >
+            Your browser does not support embedded video.
+          </video>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Interested in partnership or investment? Use the form above and select "Investor / Partnership" — your message routes directly to HunaDoc leadership.
+      </p>
     </div>
   );
 }

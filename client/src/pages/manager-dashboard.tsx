@@ -7,7 +7,7 @@ import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase } from "lucide-react";
+import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase, Mail, Copy } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
 import type { LedgerEntry, License, User, Shift } from "@/lib/types";
@@ -32,6 +32,12 @@ const NAV: NavGroup[] = [
     ],
   },
   {
+    label: "Inbound",
+    items: [
+      { label: "Messages", path: "/dashboard/manager/inbox", testId: "nav-manager-inbox", icon: Mail },
+    ],
+  },
+  {
     label: "Help",
     items: [
       { label: "User guide", path: "/dashboard/manager/help", testId: "nav-manager-help", icon: BookOpen },
@@ -49,6 +55,7 @@ export default function ManagerDashboard() {
       {tab === "verify-shifts" && <VerifyShifts />}
       {tab === "ledger" && <LedgerFeed />}
       {tab === "users" && <UsersList />}
+      {tab === "inbox" && <InboundMessages />}
       {tab === "help" && <HelpGuide role="manager" />}
     </AppShell>
   );
@@ -259,6 +266,110 @@ function VerifyShifts() {
             </CardContent>
           </Card>
         ))}
+      </div>
+    </div>
+  );
+}
+
+type ContactSubmission = {
+  receivedAt: string;
+  kind: string;
+  role: string;
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+};
+
+const KIND_LABELS: Record<string, string> = {
+  join_team: "Join the Team",
+};
+const ROLE_LABELS: Record<string, string> = {
+  prescriber: "Prescriber",
+  pharmacist: "Pharmacist",
+  pharmacy: "Pharmacy",
+  mental_health: "Mental Health / Outreach",
+  investor: "Investor / Partnership",
+};
+
+function InboundMessages() {
+  const { toast } = useToast();
+  const { data: messages = [], isLoading } = useQuery<ContactSubmission[]>({
+    queryKey: ["/api/manager/contact-submissions"],
+    queryFn: async () => (await apiRequest("GET", "/api/manager/contact-submissions")).json(),
+  });
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); toast({ title: "Copied" }); } catch {}
+  };
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Inbound messages</h2>
+        <p className="text-xs text-muted-foreground">
+          Public submissions from the HunaDoc landing page — Join the Team and Investor / Partnership inquiries. Newest first.
+        </p>
+      </div>
+      {isLoading && <Skel />}
+      {!isLoading && messages.length === 0 && (
+        <Empty message="No inbound messages yet. Submissions from the public landing page will appear here." />
+      )}
+      <div className="space-y-2">
+        {messages.map((m, i) => {
+          const isInvestor = m.role === "investor";
+          return (
+            <Card key={`${m.receivedAt}-${i}`} data-testid={`card-message-${i}`}>
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant={isInvestor ? "default" : "outline"} className="capitalize">
+                      {ROLE_LABELS[m.role] || m.role || "—"}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      {KIND_LABELS[m.kind] || m.kind}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{fmtDateTime(m.receivedAt)}</span>
+                  </div>
+                </div>
+                <div className="text-sm font-medium">{m.name || "(no name provided)"}</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  <div className="flex items-center gap-1">
+                    <a href={`mailto:${m.email}`} className="text-primary hover:underline" data-testid={`link-message-email-${i}`}>{m.email}</a>
+                    <button onClick={() => copy(m.email)} className="text-muted-foreground hover:text-foreground" aria-label="Copy email">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {m.phone && (
+                    <div className="flex items-center gap-1">
+                      <a href={`tel:${m.phone}`} className="text-primary hover:underline">{m.phone}</a>
+                      <button onClick={() => copy(m.phone)} className="text-muted-foreground hover:text-foreground" aria-label="Copy phone">
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {m.message && (
+                  <div className="text-sm bg-muted/40 rounded-md p-2 whitespace-pre-wrap">{m.message}</div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <a
+                    href={`mailto:${m.email}?subject=${encodeURIComponent("HunaDoc — thanks for reaching out")}&body=${encodeURIComponent(`Aloha ${m.name || ""},\n\nThank you for your message about HunaDoc. We received the following:\n\n\"${m.message}\"\n\nLet's set up a time to talk.\n\nMahalo,\nHunaDoc team`)}`}
+                    className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border hover:bg-muted"
+                    data-testid={`button-reply-${i}`}
+                  >
+                    <Mail className="h-3 w-3" /> Reply
+                  </a>
+                  <a
+                    href={`mailto:Lavishluau@gmail.com?subject=${encodeURIComponent("HunaDoc inbound — " + (ROLE_LABELS[m.role] || m.role))}&body=${encodeURIComponent(`From: ${m.name} <${m.email}>\nPhone: ${m.phone || "—"}\nRole: ${ROLE_LABELS[m.role] || m.role}\nReceived: ${m.receivedAt}\n\n${m.message}`)}`}
+                    className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border hover:bg-muted"
+                    data-testid={`button-forward-${i}`}
+                  >
+                    <Mail className="h-3 w-3" /> Forward to Lavishluau@gmail.com
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
