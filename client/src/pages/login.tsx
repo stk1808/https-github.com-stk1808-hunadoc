@@ -100,10 +100,25 @@ export default function LoginPage() {
       }
       if (reg.role === "manager") body.organizationName = reg.organizationName;
       const r = await apiRequest("POST", "/api/auth/register", body);
-      const u = await r.json();
+      const data = await r.json();
+      // New flow: account enters pending-approval queue; no auto-login.
+      if (data?.pending) {
+        toast({
+          title: "Registration submitted",
+          description: "An Operations Manager will review your request and email a temporary password.",
+        });
+        setReg({
+          email: "", password: "", fullName: "", role: "pharmacist",
+          npi: "", pharmacistLicense: "", ncpdp: "", organizationName: "",
+          specialty: "", state: "HI",
+        });
+        setTab("login");
+        return;
+      }
+      // Fallback (shouldn't hit) — legacy auto-login path
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Account created", description: `Welcome to HunaDoc, ${u.fullName}` });
-      setLocation(`/dashboard/${u.role}`);
+      toast({ title: "Account created", description: `Welcome to HunaDoc, ${data?.fullName || ""}` });
+      if (data?.role) setLocation(`/dashboard/${data.role}`);
     } catch (err: any) {
       toast({ title: "Registration failed", description: err.message, variant: "destructive" });
     } finally {
@@ -171,7 +186,9 @@ export default function LoginPage() {
           <Card className="border-border">
             <CardHeader>
               <CardTitle className="text-lg">Sign in to HunaDoc</CardTitle>
-              <CardDescription>Use a demo account or register a new one.</CardDescription>
+              <CardDescription>
+                Public preview. Demo logins are read-only. Register to request full access — an Operations Manager approves new accounts and emails a temporary password.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
@@ -210,7 +227,7 @@ export default function LoginPage() {
                   </form>
 
                   <div className="pt-3 border-t border-border">
-                    <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Quick demo access</div>
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Quick demo access · read-only preview</div>
                     <div className="grid gap-1.5">
                       {DEMO_ACCOUNTS.map((d) => (
                         <button

@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/components/AuthContext";
 import LoginPage from "@/pages/login";
+import ChangePasswordPage from "@/pages/change-password";
 import PharmacistDashboard from "@/pages/pharmacist-dashboard";
 import PrescriberDashboard from "@/pages/prescriber-dashboard";
 import PharmacyDashboard from "@/pages/pharmacy-dashboard";
@@ -33,12 +34,15 @@ function ProtectedDashboard({ role, Component }: { role: string; Component: any 
     if (isLoading) return;
     if (!user) {
       setLocation("/login");
+    } else if (user.mustChangePassword) {
+      setLocation("/change-password");
     } else if (user.role !== role) {
       setLocation(`/dashboard/${user.role}`);
     }
   }, [user, isLoading, role, setLocation]);
   if (isLoading) return <BootSplash />;
   if (!user || user.role !== role) return <BootSplash />;
+  if (user.mustChangePassword) return <BootSplash />;
   return <Component />;
 }
 
@@ -58,6 +62,7 @@ function AppRouter() {
     <Switch>
       <Route path="/" component={HomeRedirect} />
       <Route path="/login" component={LoginPage} />
+      <Route path="/change-password" component={ChangePasswordPage} />
       <Route path="/dashboard/pharmacist/:tab?">
         {() => <ProtectedDashboard role="pharmacist" Component={PharmacistDashboard} />}
       </Route>

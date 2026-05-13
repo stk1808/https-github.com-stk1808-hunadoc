@@ -69,6 +69,16 @@ function isLaiDrug(drug?: string | null): boolean {
   return LAI_DRUGS.some((name) => d.includes(name));
 }
 
+// Generates an 11-character temporary password using crypto-safe randomness.
+function generateTempPassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  const crypto = require("node:crypto");
+  const bytes = crypto.randomBytes(11);
+  let out = "";
+  for (let i = 0; i < 11; i++) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
 declare module "express-session" {
   interface SessionData {
     userId?: number;
@@ -135,6 +145,35 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       fs.appendFileSync(logPath, JSON.stringify(entry) + "\n");
 
       console.log(`[contact] ${entry.kind} from ${entry.email} (${entry.role || "—"})`);
+
+      // Bridge Join-the-Team submissions into the pending-approval queue when a
+      // pharmacist/prescriber/pharmacy/manager/patient role is selected. Investors
+      // and generic submissions stay in the JSON log only.
+      const validRoles = ["pharmacist", "prescriber", "pharmacy", "manager", "patient"];
+      if (entry.role && validRoles.includes(entry.role)) {
+        try {
+          const existing = await storage.getUserByEmail(entry.email);
+          if (!existing) {
+            // Use a random placeholder password; manager will replace on approval.
+            const placeholder = generateTempPassword();
+            const u = await storage.createUser({
+              email: entry.email,
+              password: placeholder,
+              role: entry.role,
+              fullName: entry.name || entry.email,
+              phone: entry.phone || null,
+            } as any);
+            await storage.setUserApprovalStatus(u.id, "pending");
+            if (entry.message) {
+              try { await storage.setUserRegistrationNote(u.id, entry.message); } catch {}
+            }
+            console.log(`[contact] queued pending user ${entry.email} (${entry.role})`);
+          }
+        } catch (err: any) {
+          console.warn("[contact] queue pending user failed:", err?.message);
+        }
+      }
+
       res.json({ ok: true });
     } catch (e: any) {
       console.error("[contact]", e);
@@ -150,11 +189,13 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       const data = insertUserSchema.parse(req.body);
       const existing = await storage.getUserByEmail(data.email);
       if (existing) return res.status(400).json({ error: "Email already registered" });
+      // Pending: account is created but NOT auto-logged-in. Manager must approve.
       const user = await storage.createUser(data);
-      req.session.userId = user.id;
-      req.session.role = user.role;
+      try {
+        await storage.setUserApprovalStatus(user.id, "pending");
+      } catch {}
       const { password, ...safe } = user;
-      res.json(safe);
+      res.json({ pending: true, message: "Registration received. An Operations Manager will review and email a temporary password to you.", user: safe });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -167,10 +208,18 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       if (!user) return res.status(401).json({ error: "Invalid credentials" });
       const ok = await bcrypt.compare(password, user.password);
       if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+      // Block pending/rejected users from logging in
+      const status = (user as any).approvalStatus || "approved";
+      if (status === "pending") {
+        return res.status(403).json({ error: "Your account is awaiting Operations Manager approval. You'll receive a temporary password by email once approved." });
+      }
+      if (status === "rejected") {
+        return res.status(403).json({ error: "Your registration was not approved. Please contact support." });
+      }
       req.session.userId = user.id;
       req.session.role = user.role;
       const { password: _, ...safe } = user;
-      res.json(safe);
+      res.json({ ...safe, mustChangePassword: !!(user as any).mustChangePassword });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -188,6 +237,26 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     res.json(safe);
   });
 
+  // First-login password change. Requires auth (user just logged in with temp pwd).
+  app.post("/api/auth/change-password", async (req: any, res) => {
+    try {
+      if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+      const { oldPassword, newPassword } = req.body || {};
+      if (typeof newPassword !== "string" || newPassword.length < 8) {
+        return res.status(400).json({ error: "New password must be at least 8 characters." });
+      }
+      const user = await storage.getUserById(req.session.userId);
+      if (!user) return res.status(401).json({ error: "Not found" });
+      const ok = await bcrypt.compare(String(oldPassword || ""), user.password);
+      if (!ok) return res.status(400).json({ error: "Current password is incorrect." });
+      await storage.updateUserPassword(user.id, newPassword);
+      await storage.setUserMustChangePassword(user.id, false);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   // Auth middleware
   const requireAuth = (req: any, res: any, next: any) => {
     if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
@@ -198,6 +267,36 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
     if (!roles.includes(req.session.role!)) return res.status(403).json({ error: "Forbidden" });
     next();
   };
+
+  // Tamper-resistance: demo accounts and unapproved users cannot mutate state.
+  // Applied globally to /api/* for non-GET methods, with an allowlist for endpoints
+  // public users must reach (register, login, logout, change-password, public contact).
+  const MUTATION_ALLOWLIST = new Set([
+    "/api/auth/register",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/change-password",
+    "/api/contact",
+  ]);
+  app.use("/api", async (req: any, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
+    if (MUTATION_ALLOWLIST.has(req.path)) return next();
+    if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const user = await storage.getUserById(req.session.userId);
+      if (!user) return res.status(401).json({ error: "Not authenticated" });
+      const status = (user as any).approvalStatus || "approved";
+      if (status !== "approved") {
+        return res.status(403).json({ error: "Account not approved. Read-only access." });
+      }
+      if ((user as any).isDemo) {
+        return res.status(403).json({ error: "Demo account is read-only. Register and request approval to perform actions." });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: "Auth check failed" });
+    }
+    next();
+  });
 
   // ============================================================
   // Users
@@ -216,6 +315,56 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
       );
     }
     res.json(list.map(({ password, ...u }) => u));
+  });
+
+  // ============================================================
+  // Manager: pending registrations queue
+  // ============================================================
+  app.get("/api/manager/registrations/pending", requireRole("manager"), async (_req: any, res) => {
+    const all = await storage.listPendingUsers();
+    res.json(all.map(({ password, ...u }) => u));
+  });
+
+  app.post("/api/manager/registrations/:id/approve", requireRole("manager"), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const target = await storage.getUserById(id);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      if ((target as any).approvalStatus === "approved") {
+        return res.status(400).json({ error: "User is already approved." });
+      }
+      // Generate a temp password the manager can email to the new user.
+      const tempPassword = generateTempPassword();
+      await storage.updateUserPassword(id, tempPassword);
+      await storage.setUserMustChangePassword(id, true);
+      await storage.setUserApprovalStatus(id, "approved", req.session.userId);
+      const subject = encodeURIComponent("Your HunaDoc account is approved");
+      const body = encodeURIComponent(
+        `Hello ${target.fullName || target.email},\n\n` +
+        `Your HunaDoc account (role: ${target.role}) has been approved by the Operations Manager.\n\n` +
+        `Sign in at https://hunadoc.com with:\n` +
+        `  Email: ${target.email}\n` +
+        `  Temporary password: ${tempPassword}\n\n` +
+        `You will be required to change this password on first login.\n\n` +
+        `— HunaDoc Operations`
+      );
+      const mailtoUrl = `mailto:${target.email}?subject=${subject}&body=${body}`;
+      res.json({ ok: true, tempPassword, mailtoUrl, user: { id: target.id, email: target.email, fullName: target.fullName, role: target.role } });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/manager/registrations/:id/reject", requireRole("manager"), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const target = await storage.getUserById(id);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      await storage.setUserApprovalStatus(id, "rejected", req.session.userId);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
 
   // ============================================================

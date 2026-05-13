@@ -197,6 +197,24 @@ addColumnIfMissing("prescriptions", "lai_schedule", "TEXT");
 addColumnIfMissing("prescriptions", "mobile_pharmacist_id", "INTEGER");
 addColumnIfMissing("users", "lai_certified", "INTEGER DEFAULT 0");
 addColumnIfMissing("users", "mobile", "INTEGER DEFAULT 0");
+// Access-control fields (tamper-resistant gating)
+addColumnIfMissing("users", "approval_status", "TEXT DEFAULT 'pending'");
+addColumnIfMissing("users", "approved_at", "INTEGER");
+addColumnIfMissing("users", "approved_by_user_id", "INTEGER");
+addColumnIfMissing("users", "must_change_password", "INTEGER DEFAULT 0");
+addColumnIfMissing("users", "is_demo", "INTEGER DEFAULT 0");
+addColumnIfMissing("users", "registration_note", "TEXT");
+
+// Backfill: existing demo accounts (@demo.huna) get is_demo=1 and approved status
+// Existing real registered accounts (created before this change) also get approved so they aren't locked out
+try {
+  sqlite.exec(`
+    UPDATE users SET is_demo = 1, approval_status = 'approved' WHERE email LIKE '%@demo.huna' AND (is_demo IS NULL OR is_demo = 0);
+    UPDATE users SET approval_status = 'approved' WHERE approval_status IS NULL OR approval_status = '';
+  `);
+} catch (e) {
+  console.warn("[migrate] approval backfill:", (e as Error).message);
+}
 
 // One-shot fixup: ensure demo pharmacist is LAI-certified + mobile so existing prod DBs
 // (where seedIfEmpty already ran) still surface a choice in the prescriber picker.
@@ -217,6 +235,12 @@ export interface IStorage {
   getUserById(id: number): Promise<User | undefined>;
   listUsersByRole(role: string): Promise<User[]>;
   setUserVerified(id: number, verified: boolean): Promise<void>;
+  // Access control
+  listPendingUsers(): Promise<User[]>;
+  setUserApprovalStatus(id: number, status: "pending" | "approved" | "rejected", approvedByUserId?: number): Promise<void>;
+  setUserMustChangePassword(id: number, mustChange: boolean): Promise<void>;
+  updateUserPassword(id: number, newPassword: string): Promise<void>;
+  setUserRegistrationNote(id: number, note: string): Promise<void>;
 
   // Licenses
   createLicense(l: InsertLicense): Promise<License>;
@@ -291,6 +315,27 @@ class SQLiteStorage implements IStorage {
   }
   async setUserVerified(id: number, verified: boolean) {
     db.update(users).set({ verified }).where(eq(users.id, id)).run();
+  }
+  async listPendingUsers() {
+    return db.select().from(users).where(eq(users.approvalStatus, "pending")).orderBy(desc(users.createdAt)).all();
+  }
+  async setUserApprovalStatus(id: number, status: "pending" | "approved" | "rejected", approvedByUserId?: number) {
+    const update: any = { approvalStatus: status };
+    if (status === "approved") {
+      update.approvedAt = now();
+      if (approvedByUserId) update.approvedByUserId = approvedByUserId;
+    }
+    db.update(users).set(update).where(eq(users.id, id)).run();
+  }
+  async setUserMustChangePassword(id: number, mustChange: boolean) {
+    db.update(users).set({ mustChangePassword: mustChange }).where(eq(users.id, id)).run();
+  }
+  async updateUserPassword(id: number, newPassword: string) {
+    const hash = await bcrypt.hash(newPassword, 10);
+    db.update(users).set({ password: hash }).where(eq(users.id, id)).run();
+  }
+  async setUserRegistrationNote(id: number, note: string) {
+    db.update(users).set({ registrationNote: note }).where(eq(users.id, id)).run();
   }
 
   async createLicense(l: InsertLicense): Promise<License> {
@@ -547,6 +592,11 @@ async function seedMedipharmPharmacists() {
       organizationName: "Medipharm",
       state: m.state,
     } as any);
+    // Pre-approve seeded Medipharm pharmacists so the demo network has signers ready.
+    // (Not flagged as isDemo — they exist to populate the staffing pool.)
+    try {
+      sqlite.exec(`UPDATE users SET approval_status = 'approved' WHERE id = ${u.id}`);
+    } catch {}
     // Newly registered — not pre-verified; manager will verify.
   }
 }
@@ -571,6 +621,12 @@ export async function seedIfEmpty() {
     // Pharmacist starts unverified so the manager has something to verify in alpha
     if (d.role !== "pharmacist") await storage.setUserVerified(u.id, true);
     userIdByEmail[d.email] = u.id;
+  }
+  // Mark demo accounts as read-only previews and pre-approve them (no manager approval needed)
+  try {
+    sqlite.exec("UPDATE users SET is_demo = 1, approval_status = 'approved' WHERE email LIKE '%@demo.huna'");
+  } catch (e) {
+    console.warn("[seed] demo-tag fixup:", (e as Error).message);
   }
 
   // Mark the demo pharmacist as LAI-certified + mobile so the prescriber picker has a choice

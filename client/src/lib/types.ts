@@ -16,6 +16,10 @@ export interface User {
   verified: boolean;
   laiCertified?: boolean;
   mobile?: boolean;
+  approvalStatus?: "pending" | "approved" | "rejected";
+  mustChangePassword?: boolean;
+  isDemo?: boolean;
+  registrationNote?: string | null;
   createdAt: number;
 }
 

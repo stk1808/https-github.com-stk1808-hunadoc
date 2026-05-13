@@ -23,10 +23,17 @@ export const users = sqliteTable("users", {
   // pharmacist-only flags
   laiCertified: integer("lai_certified", { mode: "boolean" }).default(false),
   mobile: integer("mobile", { mode: "boolean" }).default(false), // available for mobile administration
+  // Access control — tamper-resistant gating
+  approvalStatus: text("approval_status", { enum: ["pending", "approved", "rejected"] }).default("pending"),
+  approvedAt: integer("approved_at"),
+  approvedByUserId: integer("approved_by_user_id"),
+  mustChangePassword: integer("must_change_password", { mode: "boolean" }).default(false),
+  isDemo: integer("is_demo", { mode: "boolean" }).default(false), // read-only preview accounts
+  registrationNote: text("registration_note"), // optional Join-the-Team message
   createdAt: integer("created_at").notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, verified: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, verified: true, approvalStatus: true, approvedAt: true, approvedByUserId: true, mustChangePassword: true, isDemo: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 

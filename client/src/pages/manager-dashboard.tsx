@@ -7,7 +7,7 @@ import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase, Mail, Copy, PlayCircle } from "lucide-react";
+import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase, Mail, Copy, PlayCircle, UserCheck, UserPlus, X, Send } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import { useState } from "react";
 import marketingVideoUrl from "@assets/video/hunadoc-marketing.mp4?url";
@@ -24,6 +24,12 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Overview", path: "/dashboard/manager", testId: "nav-manager-overview", icon: LayoutDashboard },
       { label: "Users", path: "/dashboard/manager/users", testId: "nav-manager-users", icon: Users },
+    ],
+  },
+  {
+    label: "Access",
+    items: [
+      { label: "Pending registrations", path: "/dashboard/manager/pending", testId: "nav-manager-pending", icon: UserPlus },
     ],
   },
   {
@@ -60,6 +66,7 @@ export default function ManagerDashboard() {
       {tab === "ledger" && <LedgerFeed />}
       {tab === "users" && <UsersList />}
       {tab === "inbox" && <InboundMessages />}
+      {tab === "pending" && <PendingRegistrations />}
       {tab === "help" && <HelpGuide role="manager" />}
       {tab === "marketing" && <MarketingVideo />}
     </AppShell>
@@ -548,6 +555,157 @@ function MarketingVideo() {
             Download MP4
           </a>
         </Button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Pending registrations queue: approve or reject new sign-ups
+// ============================================================
+function PendingRegistrations() {
+  const { toast } = useToast();
+  const { data: pending = [], isLoading } = useQuery<User[]>({
+    queryKey: ["/api/manager/registrations/pending"],
+  });
+  const [approved, setApproved] = useState<Record<number, { tempPassword: string; mailtoUrl: string }>>({});
+
+  const approveMut = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/manager/registrations/${id}/approve`);
+      return (await r.json()) as { tempPassword: string; mailtoUrl: string };
+    },
+    onSuccess: (data, id) => {
+      setApproved((p) => ({ ...p, [id]: data }));
+      queryClient.invalidateQueries({ queryKey: ["/api/manager/registrations/pending"] });
+      toast({ title: "Account approved", description: "Temporary password generated. Send it via the mailto link." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Approve failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/manager/registrations/${id}/reject`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/manager/registrations/pending"] });
+      toast({ title: "Registration rejected" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Reject failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-base flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-primary" /> Pending registrations
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+            New sign-ups and Join-the-Team submissions wait here until you approve. Approving generates a temporary password and opens a pre-filled email so you can send it from Lavishluau@gmail.com. The user must change the password on first login.
+          </p>
+        </div>
+        <Badge variant="outline" className="text-[10px]">{pending.length} waiting</Badge>
+      </div>
+
+      {isLoading && <div className="text-sm text-muted-foreground">Loading...</div>}
+
+      {!isLoading && pending.length === 0 && (
+        <Card>
+          <CardContent className="p-5 text-sm text-muted-foreground">
+            No pending registrations. New sign-ups from the public site will appear here.
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-3">
+        {pending.map((u) => {
+          const grant = approved[u.id];
+          return (
+            <Card key={u.id} data-testid={`pending-user-${u.id}`}>
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm">{u.fullName}</span>
+                      <Badge variant="outline" className="text-[10px] capitalize">{u.role}</Badge>
+                      <Badge variant="outline" className={`text-[10px] ${statusColor("pending")}`}>pending</Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{u.email}</div>
+                    {u.phone && <div className="text-xs text-muted-foreground">{u.phone}</div>}
+                    {u.organizationName && <div className="text-xs">Org: {u.organizationName}</div>}
+                    {u.npi && <div className="text-xs font-mono">NPI {u.npi}</div>}
+                    {u.pharmacistLicense && <div className="text-xs font-mono">License {u.pharmacistLicense}</div>}
+                    {u.ncpdp && <div className="text-xs font-mono">NCPDP {u.ncpdp}</div>}
+                    {u.registrationNote && (
+                      <div className="text-xs italic text-muted-foreground mt-1 max-w-prose">
+                        "{u.registrationNote}"
+                      </div>
+                    )}
+                    <div className="text-[10px] text-muted-foreground mt-1">Received {fmtDateTime(u.createdAt)}</div>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={() => approveMut.mutate(u.id)}
+                      disabled={approveMut.isPending || !!grant}
+                      data-testid={`button-approve-${u.id}`}
+                    >
+                      <UserCheck className="h-4 w-4 mr-1.5" />
+                      {grant ? "Approved" : "Approve"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => rejectMut.mutate(u.id)}
+                      disabled={rejectMut.isPending || !!grant}
+                      data-testid={`button-reject-${u.id}`}
+                    >
+                      <X className="h-4 w-4 mr-1.5" />
+                      Reject
+                    </Button>
+                  </div>
+                </div>
+
+                {grant && (
+                  <div className="border-t border-border pt-3 space-y-2">
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Temporary password (send via email)
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="font-mono text-sm bg-card/50 px-2 py-1 rounded border border-border" data-testid={`temp-password-${u.id}`}>
+                        {grant.tempPassword}
+                      </code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          navigator.clipboard.writeText(grant.tempPassword);
+                          toast({ title: "Copied", description: "Temporary password copied to clipboard." });
+                        }}
+                        data-testid={`button-copy-temp-${u.id}`}
+                      >
+                        <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy
+                      </Button>
+                      <Button size="sm" asChild data-testid={`button-mailto-${u.id}`}>
+                        <a href={grant.mailtoUrl}>
+                          <Send className="h-3.5 w-3.5 mr-1.5" /> Send approval email
+                        </a>
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      The user must change this password on first login. Send the email from your Lavishluau@gmail.com account.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
