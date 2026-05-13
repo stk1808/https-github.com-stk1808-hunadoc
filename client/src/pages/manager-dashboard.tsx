@@ -7,8 +7,11 @@ import { LedgerProofBadge } from "@/components/LedgerProofBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase, Mail, Copy } from "lucide-react";
+import { Activity, Users, FileSignature, Database, ShieldCheck, Wallet, ExternalLink, BookOpen, LayoutDashboard, Briefcase, Mail, Copy, PlayCircle } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
+import { useState } from "react";
+import marketingVideoUrl from "@assets/video/hunadoc-marketing.mp4?url";
+import marketingPosterUrl from "@assets/video/hunadoc-marketing-poster.jpg?url";
 import type { NavGroup } from "@/components/AppShell";
 import type { LedgerEntry, License, User, Shift } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
@@ -41,6 +44,7 @@ const NAV: NavGroup[] = [
     label: "Help",
     items: [
       { label: "User guide", path: "/dashboard/manager/help", testId: "nav-manager-help", icon: BookOpen },
+      { label: "Marketing video", path: "/dashboard/manager/marketing", testId: "nav-manager-marketing", icon: PlayCircle },
     ],
   },
 ];
@@ -57,6 +61,7 @@ export default function ManagerDashboard() {
       {tab === "users" && <UsersList />}
       {tab === "inbox" && <InboundMessages />}
       {tab === "help" && <HelpGuide role="manager" />}
+      {tab === "marketing" && <MarketingVideo />}
     </AppShell>
   );
 }
@@ -485,3 +490,65 @@ function Stat({ icon: Icon, label, value }: { icon: any; label: string; value: a
 }
 function Skel() { return <div className="grid gap-2">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-lg border border-border bg-card animate-pulse" />)}</div>; }
 function Empty({ message }: { message: string }) { return <Card className="border-dashed"><CardContent className="p-8 text-center text-sm text-muted-foreground">{message}</CardContent></Card>; }
+
+function MarketingVideo() {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight flex items-center gap-2">
+          <PlayCircle className="h-4 w-4 text-primary" />
+          HunaDoc marketing video
+        </h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          A 60-second brand spot for sharing with partners, conferences, and outreach programs.
+        </p>
+      </div>
+      <Card>
+        <CardContent className="p-3">
+          <div
+            className="relative rounded-lg overflow-hidden border border-border bg-black aspect-video group cursor-pointer"
+            data-testid="button-play-marketing"
+            onClick={() => setPlaying(true)}
+          >
+            {!playing ? (
+              <>
+                <img
+                  src={marketingPosterUrl}
+                  alt="HunaDoc marketing video"
+                  className="absolute inset-0 w-full h-full object-cover opacity-80"
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-t from-black/70 via-black/20 to-transparent">
+                  <div className="h-16 w-16 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center group-hover:scale-105 transition-transform shadow-lg">
+                    <PlayCircle className="h-9 w-9" />
+                  </div>
+                  <div className="text-xs font-medium text-white drop-shadow">
+                    HunaDoc marketing · 60 seconds
+                  </div>
+                </div>
+              </>
+            ) : (
+              <video
+                src={marketingVideoUrl}
+                poster={marketingPosterUrl}
+                controls
+                autoPlay
+                className="absolute inset-0 w-full h-full"
+                data-testid="video-marketing"
+              >
+                Your browser does not support embedded video.
+              </video>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      <div className="flex gap-2">
+        <Button asChild variant="outline" size="sm" data-testid="button-download-marketing">
+          <a href={marketingVideoUrl} download="hunadoc-marketing.mp4">
+            Download MP4
+          </a>
+        </Button>
+      </div>
+    </div>
+  );
+}
