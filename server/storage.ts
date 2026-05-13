@@ -601,9 +601,44 @@ async function seedMedipharmPharmacists() {
   }
 }
 
+// Idempotent: ensures the real Operations Manager (lavishluau@gmail.com) exists
+// and has full, approved, non-demo access on every boot. If the account is
+// missing, it is created with the default password "HunaDoc2026!" and forced to
+// change it on first login. Existing accounts have their flags repaired.
+export async function ensureOwnerAccount() {
+  const OWNER_EMAIL = "lavishluau@gmail.com";
+  const DEFAULT_PASSWORD = "HunaDoc2026!";
+  try {
+    const existing = await storage.getUserByEmail(OWNER_EMAIL);
+    if (!existing) {
+      const u = await storage.createUser({
+        email: OWNER_EMAIL,
+        password: DEFAULT_PASSWORD,
+        role: "manager",
+        fullName: "HunaDoc Operations Manager",
+        organizationName: "HunaDoc Operations",
+        state: "HI",
+      } as any);
+      sqlite.exec(
+        `UPDATE users SET approval_status = 'approved', is_demo = 0, must_change_password = 1, verified = 1 WHERE id = ${u.id}`
+      );
+      console.log(`[seed] Created owner account ${OWNER_EMAIL} (default password: ${DEFAULT_PASSWORD}, must change on first login)`);
+    } else {
+      // Repair flags in case the account was created before the access-control rollout.
+      sqlite.exec(
+        `UPDATE users SET approval_status = 'approved', is_demo = 0, verified = 1 WHERE id = ${existing.id}`
+      );
+      console.log(`[seed] Owner account ${OWNER_EMAIL} verified (approved, non-demo, full access)`);
+    }
+  } catch (e) {
+    console.warn("[seed] ensureOwnerAccount failed:", (e as Error).message);
+  }
+}
+
 // Seed demo accounts on first run
 export async function seedIfEmpty() {
   await seedMedipharmPharmacists();
+  await ensureOwnerAccount();
   const existing = (sqlite.prepare("SELECT COUNT(*) as c FROM users").get() as any).c;
   if (existing > 3) return; // demo seed already ran (5 demo + 3 medipharm ≥ 8)
   console.log("[seed] Creating demo accounts...");
