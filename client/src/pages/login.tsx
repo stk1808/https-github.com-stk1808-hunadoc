@@ -15,6 +15,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ShieldCheck, Activity, Stethoscope, Building2, ClipboardList, User, HeartHandshake, Briefcase, PlayCircle } from "lucide-react";
 import pitchVideoUrl from "@assets/video/hunadoc-pitch.mp4?url";
 import pitchPosterUrl from "@assets/video/hunadoc-pitch-poster.jpg?url";
+import demoVideoUrl from "@assets/video/hunadoc-demo.mp4?url";
+import demoPosterUrl from "@assets/video/hunadoc-demo-poster.jpg?url";
 import type { Role } from "@/lib/types";
 
 const DEMO_ACCOUNTS: { role: Role; email: string; name: string; icon: any }[] = [
@@ -144,6 +146,8 @@ export default function LoginPage() {
               <Feature icon={Stethoscope} title="Telehealth + eRx" desc="Sign and route in one motion" />
               <Feature icon={ClipboardList} title="Auditable ledger" desc="Public ledger sequence numbers, anytime" />
             </div>
+
+            <DemoVideo />
 
             <JoinTheTeam />
 
@@ -453,6 +457,56 @@ function JoinTheTeam() {
           {busy ? "Sending…" : "Send message"}
         </Button>
       </form>
+    </div>
+  );
+}
+
+// Product demo block. Plays the ~2 minute HunaDoc product walkthrough inline.
+function DemoVideo() {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="space-y-3 max-w-md pt-2">
+      <div className="flex items-center gap-2">
+        <PlayCircle className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold tracking-tight">See HunaDoc in action</h2>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        A short product demo walking through the landing page, dashboards, and the XRP Ledger anchoring that makes every action verifiable.
+      </p>
+      <div
+        className="relative rounded-lg overflow-hidden border border-border bg-black aspect-video group cursor-pointer"
+        data-testid="button-play-demo"
+        onClick={() => setPlaying(true)}
+      >
+        {!playing ? (
+          <>
+            <img
+              src={demoPosterUrl}
+              alt="HunaDoc product demo video"
+              className="absolute inset-0 w-full h-full object-cover opacity-80"
+            />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-t from-black/70 via-black/20 to-transparent">
+              <div className="h-14 w-14 rounded-full bg-primary/90 text-primary-foreground flex items-center justify-center group-hover:scale-105 transition-transform shadow-lg">
+                <PlayCircle className="h-8 w-8" />
+              </div>
+              <div className="text-xs font-medium text-white drop-shadow">
+                HunaDoc product demo · ~2 minutes
+              </div>
+            </div>
+          </>
+        ) : (
+          <video
+            src={demoVideoUrl}
+            poster={demoPosterUrl}
+            controls
+            autoPlay
+            className="absolute inset-0 w-full h-full"
+            data-testid="video-demo"
+          >
+            Your browser does not support embedded video.
+          </video>
+        )}
+      </div>
     </div>
   );
 }
