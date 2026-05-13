@@ -576,14 +576,27 @@ export const storage = new SQLiteStorage();
 // Idempotent: ensure the 3 Medipharm pharmacist accounts always exist so the
 // pharmacy Staffing dropdown has "newly registered" pharmacists to pick from.
 async function seedMedipharmPharmacists() {
+  // Synthetic personas for the public demo — NOT real pharmacists.
+  // These email handles double as our trusted-account logins, but the displayed
+  // fullName is anonymised so the public "See HunaDoc in action" walkthrough
+  // never shows a real person's name.
   const medipharm = [
-    { email: "scottkim@yahoo.com",     fullName: "Scott Kim",   state: "HI" },
-    { email: "cariniimi@gmail.com",   fullName: "Cari Niimi",  state: "HI" },
-    { email: "whitdang@yahoo.com",    fullName: "Nguyet Dang", state: "HI" },
+    { email: "scottkim@yahoo.com",     fullName: "Kai Aikau, PharmD",       state: "HI" },
+    { email: "cariniimi@gmail.com",   fullName: "Leilani Mahelona, PharmD", state: "HI" },
+    { email: "whitdang@yahoo.com",    fullName: "Mei Quan, PharmD",         state: "HI" },
   ];
   for (const m of medipharm) {
     const existing = await storage.getUserByEmail(m.email);
-    if (existing) continue;
+    if (existing) {
+      // Repair existing row: replace any real name still stored under this email
+      // with the synthetic persona. Done unconditionally so re-running the seed
+      // after a name change always reverts to the synthetic alias.
+      try {
+        const stmt = sqlite.prepare("UPDATE users SET full_name = ? WHERE id = ?");
+        stmt.run(m.fullName, existing.id);
+      } catch {}
+      continue;
+    }
     const u = await storage.createUser({
       email: m.email,
       password: "demo1234",
@@ -610,11 +623,14 @@ async function seedMedipharmPharmacists() {
 export async function ensureOwnerAccount() {
   const DEFAULT_PASSWORD = "HunaDoc2026!";
   const trustedAccounts: Array<{ email: string; role: string; fullName: string; organizationName?: string }> = [
+    // Real owner accounts — displayed fullName is a synthetic alias so the public
+    // demo never reveals a real operator's name. Owners can update their own
+    // fullName from their profile after sign-in if they want their real name.
     { email: "lavishluau@gmail.com", role: "manager", fullName: "HunaDoc Operations Manager", organizationName: "HunaDoc Operations" },
-    { email: "scotttwkim@yahoo.com", role: "manager", fullName: "Scott Kim", organizationName: "HunaDoc" },
-    { email: "stk1808@yahoo.com", role: "manager", fullName: "Scott Kim", organizationName: "HunaDoc" },
-    { email: "whitdang@yahoo.com", role: "manager", fullName: "Whit Dang", organizationName: "HunaDoc" },
-    { email: "cariniimi@gmail.com", role: "manager", fullName: "Carin Iimi", organizationName: "HunaDoc" },
+    { email: "scotttwkim@yahoo.com", role: "manager", fullName: "Operations Lead", organizationName: "HunaDoc" },
+    { email: "stk1808@yahoo.com", role: "manager", fullName: "Operations Lead", organizationName: "HunaDoc" },
+    { email: "whitdang@yahoo.com", role: "manager", fullName: "Mei Quan, PharmD", organizationName: "HunaDoc" },
+    { email: "cariniimi@gmail.com", role: "manager", fullName: "Leilani Mahelona, PharmD", organizationName: "HunaDoc" },
     { email: "medipharmpharmacy@yahoo.com", role: "pharmacy", fullName: "Medipharm Pharmacy", organizationName: "Medipharm" },
     { email: "medipharm808@gmail.com", role: "pharmacy", fullName: "Medipharm 808", organizationName: "Medipharm" },
   ];
@@ -643,11 +659,17 @@ export async function ensureOwnerAccount() {
         );
         console.log(`[seed] Created trusted account ${acct.email} (default password: ${DEFAULT_PASSWORD}, must change on first login)`);
       } else {
-        // Repair access flags. Do NOT touch the user's password or mustChangePassword
-        // flag — they may have already set their own password.
+        // Repair access flags + overwrite fullName with the synthetic persona so
+        // the public demo never displays a real operator's name. Do NOT touch
+        // the user's password or mustChangePassword flag — they may have already
+        // set their own password.
         sqlite.exec(
           `UPDATE users SET approval_status = 'approved', is_demo = 0, verified = 1 WHERE id = ${existing.id}`
         );
+        try {
+          const stmt = sqlite.prepare("UPDATE users SET full_name = ? WHERE id = ?");
+          stmt.run(acct.fullName, existing.id);
+        } catch {}
         // One-shot password recovery for accounts in the reset list.
         if (passwordResetList.has(acct.email.toLowerCase())) {
           await storage.updateUserPassword(existing.id, DEFAULT_PASSWORD);

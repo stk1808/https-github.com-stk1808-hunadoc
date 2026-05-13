@@ -14,7 +14,7 @@ const MemoryStore = createMemoryStore(session);
 
 // Manager dashboards are scoped per-account. The seeded demo manager
 // (manager@demo.huna, Sarah Mendel) sees ONLY the original demo signers.
-// Any newly-registered manager (e.g. Scott Dahlem) sees the INVERSE — all
+// Any newly-registered manager (e.g. a non-demo operations manager) sees the INVERSE — all
 // non-demo, self-registered users, with the demo signers hidden.
 const DEMO_EMAILS = [
   "pharmacist@demo.huna",
@@ -1020,7 +1020,7 @@ export async function registerRoutes(httpServer: HttpServer, app: Express) {
   // Manager-only: list shifts that are actively assigned to an in-scope pharmacist
   // and have NOT yet been verified by a manager. Scope rules match the rest of the
   // manager dashboards (demo manager sees demo signers, non-demo manager sees the
-  // inverse — e.g. Scott Dahlem sees Medipharm employee shifts).
+  // inverse — e.g. a non-demo operations manager sees Medipharm employee shifts).
   app.get("/api/manager/shifts/pending", requireRole("manager"), async (req: any, res) => {
     const scope = await getManagerScope(req.session.userId);
     const all = await storage.listShifts();
