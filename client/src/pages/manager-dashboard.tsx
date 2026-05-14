@@ -405,8 +405,8 @@ function LedgerFeed() {
 function LedgerTable({ entries }: { entries: LedgerEntry[] }) {
   if (entries.length === 0) return null;
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-xs">
+    <div className="rounded-lg border border-border overflow-x-auto">
+      <table className="w-full text-xs min-w-[640px]">
         <thead>
           <tr className="bg-muted/40 border-b border-border text-muted-foreground uppercase tracking-wider text-[10px]">
             <th className="text-left px-3 py-2">When</th>

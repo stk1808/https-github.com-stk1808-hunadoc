@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { useLocation } from "wouter";
-import { LogOut, Moon, Sun, type LucideIcon } from "lucide-react";
+import { LogOut, Menu, Moon, Sun, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +53,9 @@ function isGrouped(nav: NavItem[] | NavGroup[]): nav is NavGroup[] {
 export function AppShell({ title, subtitle, nav, children }: Props) {
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
+  const [location] = useLocation();
   const [dark, setDark] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     const m = window.matchMedia("(prefers-color-scheme: dark)");
@@ -64,24 +66,56 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
+  // Close mobile nav whenever the route changes.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location]);
+
+  // Prevent background scroll when mobile nav is open.
+  useEffect(() => {
+    if (mobileNavOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileNavOpen]);
+
   if (!user) return null;
 
   const groups: NavGroup[] | null = nav && nav.length > 0
     ? (isGrouped(nav) ? nav : [{ items: nav }])
     : null;
 
+  const firstName = user.fullName.split(" ")[0] || user.fullName;
+  const initials = user.fullName.split(" ").map((p) => p[0]).slice(0, 2).join("");
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <TestDataBanner />
       <header className="border-b border-border bg-card/30 backdrop-blur-sm sticky top-0 z-30">
-        <div className="px-6 h-14 flex items-center justify-between gap-6">
-          <div className="flex items-center gap-6">
+        <div className="px-3 sm:px-6 h-14 flex items-center justify-between gap-2 sm:gap-6">
+          <div className="flex items-center gap-2 sm:gap-6 min-w-0">
+            {groups && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="lg:hidden -ml-1"
+                onClick={() => setMobileNavOpen(true)}
+                data-testid="button-mobile-nav-open"
+                aria-label="Open navigation"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+            )}
             <HunaDocWordmark />
-            <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${ROLE_COLOR[user.role]}`}>
+            <Badge variant="outline" className={`hidden sm:inline-flex text-[10px] uppercase tracking-wider ${ROLE_COLOR[user.role]}`}>
               {ROLE_LABEL[user.role]}
             </Badge>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <Button
               size="icon"
               variant="ghost"
@@ -91,16 +125,18 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
             >
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
-            <div className="flex items-center gap-2 pl-2 border-l border-border">
-              <Avatar className="h-7 w-7">
+            <div className="flex items-center gap-2 pl-2 sm:border-l sm:border-border min-w-0">
+              <Avatar className="h-7 w-7 shrink-0">
                 <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                  {user.fullName.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+                  {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col leading-tight text-xs">
-                <span className="font-medium" data-testid="text-current-user-name">{user.fullName}</span>
-                <span className="text-muted-foreground">{user.email}</span>
+              {/* Mobile: show only first name. Desktop: show full name + email. */}
+              <div className="hidden sm:flex flex-col leading-tight text-xs min-w-0">
+                <span className="font-medium truncate" data-testid="text-current-user-name">{user.fullName}</span>
+                <span className="text-muted-foreground truncate">{user.email}</span>
               </div>
+              <span className="sm:hidden text-xs font-medium truncate max-w-[80px]" data-testid="text-current-user-name-mobile">{firstName}</span>
               <Button
                 size="icon"
                 variant="ghost"
@@ -119,8 +155,9 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
       </header>
 
       <div className="flex flex-1 min-h-0">
+        {/* Desktop sidebar */}
         {groups && (
-          <aside className="w-60 border-r border-border bg-sidebar/30 px-3 py-4 flex flex-col gap-4 shrink-0">
+          <aside className="hidden lg:flex w-60 border-r border-border bg-sidebar/30 px-3 py-4 flex-col gap-4 shrink-0">
             {groups.map((g, gi) => (
               <div key={gi} className="flex flex-col gap-1">
                 {g.label && (
@@ -135,12 +172,52 @@ export function AppShell({ title, subtitle, nav, children }: Props) {
             ))}
           </aside>
         )}
+
+        {/* Mobile nav drawer */}
+        {groups && mobileNavOpen && (
+          <div className="lg:hidden fixed inset-0 z-40" role="dialog" aria-modal="true">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setMobileNavOpen(false)}
+              data-testid="backdrop-mobile-nav"
+            />
+            <aside className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-background border-r border-border shadow-xl px-3 py-4 flex flex-col gap-4 overflow-y-auto">
+              <div className="flex items-center justify-between px-2">
+                <Badge variant="outline" className={`text-[10px] uppercase tracking-wider ${ROLE_COLOR[user.role]}`}>
+                  {ROLE_LABEL[user.role]}
+                </Badge>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setMobileNavOpen(false)}
+                  data-testid="button-mobile-nav-close"
+                  aria-label="Close navigation"
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              {groups.map((g, gi) => (
+                <div key={gi} className="flex flex-col gap-1">
+                  {g.label && (
+                    <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {g.label}
+                    </div>
+                  )}
+                  {g.items.map((item) => (
+                    <NavLink key={item.path} item={item} />
+                  ))}
+                </div>
+              ))}
+            </aside>
+          </div>
+        )}
+
         <main className="flex-1 min-w-0">
-          <div className="px-6 py-5 border-b border-border bg-card/20">
-            <h1 className="text-xl font-semibold tracking-tight" data-testid="text-page-title">{title}</h1>
+          <div className="px-4 sm:px-6 py-5 border-b border-border bg-card/20">
+            <h1 className="text-lg sm:text-xl font-semibold tracking-tight" data-testid="text-page-title">{title}</h1>
             {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
           </div>
-          <div className="px-6 py-6">{children}</div>
+          <div className="px-4 sm:px-6 py-6">{children}</div>
         </main>
       </div>
     </div>

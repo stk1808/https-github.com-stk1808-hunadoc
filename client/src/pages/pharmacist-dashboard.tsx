@@ -100,13 +100,13 @@ function OpenShifts() {
       <div className="grid gap-3">
         {open.map((s) => (
           <Card key={s.id} className="hover-elevate">
-            <CardContent className="p-4 flex items-start justify-between gap-4">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="font-semibold text-sm" data-testid={`text-shift-title-${s.id}`}>{s.title}</h3>
                   <Badge variant="outline" className={urgencyColor(s.urgency)}>{s.urgency}</Badge>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-xs text-muted-foreground">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mt-2 text-xs text-muted-foreground">
                   <Cell icon={Clock}>{fmtDate(s.date)} · {s.startTime}–{s.endTime}</Cell>
                   <Cell icon={MapPin}>{s.location}</Cell>
                   <Cell icon={Briefcase}>{fmtMoney(s.hourlyRate)}/hr</Cell>
@@ -118,6 +118,7 @@ function OpenShifts() {
                 disabled={acceptMut.isPending}
                 onClick={() => acceptMut.mutate(s.id)}
                 data-testid={`button-accept-shift-${s.id}`}
+                className="w-full sm:w-auto shrink-0"
               >
                 Accept shift
               </Button>
@@ -311,22 +312,24 @@ function LaiAdministrationsPage() {
               const rx = rxLookup.get(a.prescriptionId);
               return (
                 <Card key={a.id} data-testid={`card-lai-pending-${a.id}`}>
-                  <CardContent className="p-4 flex items-start justify-between gap-4">
+                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                     <div className="flex-1 min-w-0">
                       <LaiHeader admin={a} rx={rx} />
                     </div>
-                    <div className="flex flex-col gap-2 shrink-0">
+                    <div className="flex flex-row sm:flex-col gap-2 shrink-0">
                       <Button
                         size="sm"
                         disabled={acceptMut.isPending}
                         onClick={() => acceptMut.mutate({ id: a.id })}
                         data-testid={`button-accept-lai-${a.id}`}
+                        className="flex-1 sm:flex-none"
                       >Accept (ASAP)</Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => setScheduleDialog({ id: a.id, date: "" })}
                         data-testid={`button-schedule-lai-${a.id}`}
+                        className="flex-1 sm:flex-none"
                       >Schedule…</Button>
                     </div>
                   </CardContent>
@@ -345,7 +348,7 @@ function LaiAdministrationsPage() {
               const rx = rxLookup.get(a.prescriptionId);
               return (
                 <Card key={a.id} data-testid={`card-lai-scheduled-${a.id}`}>
-                  <CardContent className="p-4 flex items-start justify-between gap-4">
+                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
                     <div className="flex-1 min-w-0">
                       <LaiHeader admin={a} rx={rx} />
                       {a.acceptTxHash && (
