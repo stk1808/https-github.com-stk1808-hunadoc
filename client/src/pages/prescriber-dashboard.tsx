@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Plus, FileSignature, Video, Phone, User as UserIcon, Calendar, Users, Pill, Syringe, BookOpen, FileBadge2, Stethoscope } from "lucide-react";
 import { HelpGuide } from "@/components/HelpGuide";
 import type { NavGroup } from "@/components/AppShell";
+import { LAI_CATALOG, SIG_INTERVAL_OPTIONS } from "@/lib/lai-catalog";
 import type { Patient, Prescription, Visit, User, License } from "@/lib/types";
 import { fmtDate, fmtDateTime, statusColor } from "@/lib/format";
 
@@ -290,6 +291,48 @@ function Prescribe() {
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label>Quick fill — Long-acting injectable (mental health)</Label>
+            <Select
+              value={""}
+              onValueChange={(label) => {
+                const e = LAI_CATALOG.find((x) => x.label === label);
+                if (!e) return;
+                setForm((f) => ({
+                  ...f,
+                  drug: e.drug,
+                  strength: e.strength,
+                  form: "injection",
+                  sig: e.sig,
+                  quantity: e.quantity,
+                  refills: e.refills,
+                  isLai: true,
+                  laiSchedule:
+                    e.schedule === "q2w" || e.schedule === "q6w" || e.schedule === "q2month"
+                      ? "q2w"
+                      : e.schedule === "q3month"
+                        ? "q3month"
+                        : e.schedule === "q6month"
+                          ? "q6month"
+                          : e.schedule === "monthly"
+                            ? "monthly"
+                            : "asap",
+                }));
+              }}
+            >
+              <SelectTrigger data-testid="select-rx-lai-catalog">
+                <SelectValue placeholder="Select a medication — alphabetical (A–Z)" />
+              </SelectTrigger>
+              <SelectContent className="max-h-[320px]">
+                {LAI_CATALOG.map((e) => (
+                  <SelectItem key={e.label} value={e.label}>{e.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Fills drug, strength, form, quantity, refills, and a default sig. You can edit any field before signing.
+            </p>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Drug</Label>
@@ -311,6 +354,7 @@ function Prescribe() {
                   <SelectItem value="solution">Solution</SelectItem>
                   <SelectItem value="cream">Cream</SelectItem>
                   <SelectItem value="inhaler">Inhaler</SelectItem>
+                  <SelectItem value="injection">Injection</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -325,6 +369,19 @@ function Prescribe() {
           </div>
           <div className="space-y-1.5">
             <Label>Sig</Label>
+            <Select
+              value={""}
+              onValueChange={(v) => setForm((f) => ({ ...f, sig: v }))}
+            >
+              <SelectTrigger data-testid="select-rx-sig-interval">
+                <SelectValue placeholder="Quick sig — injection interval" />
+              </SelectTrigger>
+              <SelectContent>
+                {SIG_INTERVAL_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Textarea rows={2} value={form.sig} onChange={(e) => setForm({ ...form, sig: e.target.value })} data-testid="input-rx-sig" placeholder="Take 1 tablet by mouth daily" />
           </div>
           <div className="space-y-1.5">
