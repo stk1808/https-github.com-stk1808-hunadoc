@@ -669,8 +669,8 @@ export async function ensureOwnerAccount() {
   // manager accounts (which are also reset above) come back to a working state.
   try {
     const allUsers = sqlite.prepare(
-      "SELECT id, email, full_name, role, approval_status FROM users"
-    ).all() as Array<{ id: number; email: string; full_name: string; role: string; approval_status: string }>;
+      "SELECT id, email, full_name, role, approval_status, must_change_password FROM users"
+    ).all() as Array<{ id: number; email: string; full_name: string; role: string; approval_status: string; must_change_password: number }>;
     for (const row of allUsers) {
       const emailLc = (row.email || "").toLowerCase();
       const nameLc = (row.full_name || "").toLowerCase().replace(/\s+/g, "");
@@ -678,15 +678,22 @@ export async function ensureOwnerAccount() {
         (needle) => emailLc.includes(needle) || nameLc.includes(needle)
       );
       if (!matched) continue;
-      if (row.approval_status === "approved") {
-        console.log(`[seed] approveOnBoot: ${row.email} already approved, skipping`);
-        continue;
+      // Always force the password back to the documented temp value as long as
+      // the user still has must_change_password = 1 (i.e., they have not
+      // finished their first-login password change yet). This protects against
+      // bcrypt hash mismatches from previous boots and lets the manager hand
+      // them the same temp password every time without surprises. Once the
+      // user changes their own password, must_change_password flips to 0 and
+      // we stop touching their credentials.
+      if (row.must_change_password === 1) {
+        await storage.updateUserPassword(row.id, APPROVE_ON_BOOT_TEMP_PASSWORD);
+        console.log(`[seed] APPROVE-ON-BOOT password (re)set: ${row.email} -> ${APPROVE_ON_BOOT_TEMP_PASSWORD}`);
       }
-      await storage.updateUserPassword(row.id, APPROVE_ON_BOOT_TEMP_PASSWORD);
+      // Approval/verified/demo flags are idempotent — re-applying is harmless.
       sqlite.exec(
         `UPDATE users SET approval_status = 'approved', must_change_password = 1, verified = 1, is_demo = 0 WHERE id = ${row.id}`
       );
-      console.log(`[seed] APPROVE-ON-BOOT: ${row.email} (role ${row.role}) -> approved, temp password ${APPROVE_ON_BOOT_TEMP_PASSWORD}`);
+      console.log(`[seed] APPROVE-ON-BOOT: ${row.email} (role ${row.role}) -> approved`);
     }
   } catch (e) {
     console.warn("[seed] approveOnBoot pass failed:", (e as Error).message);
