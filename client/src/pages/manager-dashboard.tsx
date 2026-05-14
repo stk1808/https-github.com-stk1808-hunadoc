@@ -30,6 +30,7 @@ const NAV: NavGroup[] = [
     label: "Access",
     items: [
       { label: "Pending registrations", path: "/dashboard/manager/pending", testId: "nav-manager-pending", icon: UserPlus },
+      { label: "Stuck drafts", path: "/dashboard/manager/stuck-drafts", testId: "nav-manager-stuck-drafts", icon: FileSignature },
     ],
   },
   {
@@ -67,6 +68,7 @@ export default function ManagerDashboard() {
       {tab === "users" && <UsersList />}
       {tab === "inbox" && <InboundMessages />}
       {tab === "pending" && <PendingRegistrations />}
+      {tab === "stuck-drafts" && <StuckDrafts />}
       {tab === "help" && <HelpGuide role="manager" />}
       {tab === "marketing" && <MarketingVideo />}
     </AppShell>
@@ -704,6 +706,81 @@ function PendingRegistrations() {
                       The user must change this password on first login. Send the email from your Lavishluau@gmail.com account.
                     </p>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Manager surface to finalize prescriptions that prescribers left in draft.
+// Drafts with a destination pharmacy set are the recoverable ones — one click
+// signs them on the prescriber's behalf, anchors to XRPL, and routes to the
+// pharmacy queue. Drafts without a pharmacy must be fixed in the prescriber
+// workspace first.
+function StuckDrafts() {
+  const { toast } = useToast();
+  const { data: rxs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/prescriptions"] });
+  const { data: prescribers = [] } = useQuery<any[]>({ queryKey: ["/api/users", "prescriber"], queryFn: async () => {
+    const r = await apiRequest("GET", "/api/users?role=prescriber");
+    return r.json();
+  }});
+  const { data: pharmacies = [] } = useQuery<any[]>({ queryKey: ["/api/users", "pharmacy"], queryFn: async () => {
+    const r = await apiRequest("GET", "/api/users?role=pharmacy");
+    return r.json();
+  }});
+  const prescriberById = new Map(prescribers.map((p: any) => [p.id, p]));
+  const pharmacyById = new Map(pharmacies.map((p: any) => [p.id, p]));
+  const drafts = rxs.filter((r) => r.status === "draft");
+  const finalize = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await apiRequest("POST", `/api/manager/prescriptions/${id}/finalize`);
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      toast({ title: "Draft finalized", description: "Anchored to XRPL Testnet and routed to the pharmacy queue." });
+    },
+    onError: (e: any) => toast({ title: "Could not finalize", description: e.message, variant: "destructive" as any }),
+  });
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Stuck drafts ({drafts.length})</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Prescriptions a prescriber created but never signed. These do NOT appear in any pharmacy's Rx queue. If a destination pharmacy is set, you can finalize the Rx on the prescriber's behalf — anchored to XRPL Testnet with manager attribution in the ledger, and the Rx appears in the pharmacy queue immediately.
+        </p>
+      </div>
+      {isLoading && <Card><CardContent className="p-5 text-xs text-muted-foreground">Loading drafts…</CardContent></Card>}
+      {!isLoading && drafts.length === 0 && (
+        <Card><CardContent className="p-5 text-xs text-muted-foreground">No stuck drafts. Every prescription created in HunaDoc has been signed.</CardContent></Card>
+      )}
+      <div className="space-y-2">
+        {drafts.map((r: any) => {
+          const presc = prescriberById.get(r.prescriberId) as any;
+          const pharm = r.pharmacyId ? pharmacyById.get(r.pharmacyId) as any : null;
+          return (
+            <Card key={r.id}>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-mono text-muted-foreground">{r.rxNumber}</div>
+                  <div className="text-sm font-medium">{r.drug} {r.strength} · qty {r.quantity}</div>
+                  <div className="text-xs text-muted-foreground">Sig: {r.sig}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Prescriber: {presc?.fullName || `#${r.prescriberId}`} · Destination: {pharm ? (pharm.organizationName || pharm.fullName) : <span className="text-amber-600">no pharmacy set</span>}
+                  </div>
+                </div>
+                {r.pharmacyId ? (
+                  <Button size="sm" disabled={finalize.isPending} onClick={() => finalize.mutate(r.id)} data-testid={`button-finalize-rx-${r.id}`}>
+                    <FileSignature className="h-3.5 w-3.5 mr-1.5" />
+                    {finalize.isPending ? "Sending…" : "Sign + send"}
+                  </Button>
+                ) : (
+                  <span className="text-[11px] text-amber-600">Needs prescriber action</span>
                 )}
               </CardContent>
             </Card>

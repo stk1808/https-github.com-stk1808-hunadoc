@@ -247,6 +247,45 @@ function Prescribe() {
       setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual", destinationSoftware: "manual", pharmacyId: "", isLai: false, laiSchedule: "asap", mobilePharmacistId: "" });
     },
   });
+  // One-click Create + Sign + transmit: creates the draft, then immediately
+  // signs it so it shows up in the destination pharmacy's queue. This is the
+  // primary path — "Save as draft" is kept only for prescribers who want to
+  // queue Rx without anchoring/transmitting yet.
+  const createAndSign = useMutation({
+    mutationFn: async () => {
+      const createBody: any = {
+        patientId: parseInt(form.patientId),
+        drug: form.drug, strength: form.strength, form: form.form,
+        sig: form.sig, quantity: form.quantity, refills: parseInt(form.refills),
+        channel: form.channel, destinationSoftware: form.destinationSoftware,
+      };
+      if (form.pharmacyId) createBody.pharmacyId = parseInt(form.pharmacyId);
+      const cr = await apiRequest("POST", "/api/prescriptions", createBody);
+      const created = await cr.json();
+      const signBody: any = {
+        routingChannel: form.channel,
+        destinationSoftware: form.destinationSoftware,
+        pharmacyId: form.pharmacyId ? parseInt(form.pharmacyId) : undefined,
+      };
+      if (showLaiSection) {
+        signBody.isLai = true;
+        signBody.laiSchedule = form.laiSchedule;
+        if (form.mobilePharmacistId) signBody.mobilePharmacistId = parseInt(form.mobilePharmacistId);
+      }
+      const sr = await apiRequest("POST", `/api/prescriptions/${created.id}/sign`, signBody);
+      return sr.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/prescriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ledger"] });
+      toast({
+        title: "Prescription signed and sent to pharmacy",
+        description: `XRPL tx ${data.broadcast?.txHash?.slice(0, 12)}… · routed to the selected pharmacy queue (SIMULATED).`,
+      });
+      setForm({ patientId: "", drug: "", strength: "", form: "tablet", sig: "", quantity: "", refills: "0", channel: "manual", destinationSoftware: "manual", pharmacyId: "", isLai: false, laiSchedule: "asap", mobilePharmacistId: "" });
+    },
+    onError: (e: any) => toast({ title: "Could not sign and send", description: e?.message, variant: "destructive" as any }),
+  });
   const sign = useMutation({
     mutationFn: async (id: number) => {
       // Resend the routing fields at sign time — server uses these if the draft
@@ -484,17 +523,38 @@ function Prescribe() {
             )}
           </div>
 
-          <Button
-            onClick={() => create.mutate()}
-            disabled={!form.patientId || !form.drug || !form.sig || !form.quantity || create.isPending}
-            className="w-full"
-            data-testid="button-save-draft-rx"
-          >Save as draft</Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={() => create.mutate()}
+              disabled={!form.patientId || !form.drug || !form.sig || !form.quantity || create.isPending || createAndSign.isPending}
+              data-testid="button-save-draft-rx"
+            >Save as draft</Button>
+            <Button
+              onClick={() => createAndSign.mutate()}
+              disabled={!form.patientId || !form.drug || !form.sig || !form.quantity || create.isPending || createAndSign.isPending || !form.pharmacyId}
+              data-testid="button-create-and-sign-rx"
+            >
+              <FileSignature className="h-3.5 w-3.5 mr-1" />
+              {createAndSign.isPending ? "Sending…" : "Sign and send to pharmacy"}
+            </Button>
+          </div>
+          {!form.pharmacyId && (form.patientId || form.drug) && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              Pick a destination pharmacy above to enable “Sign and send to pharmacy”. Otherwise the Rx will only save as a draft and will NOT appear in any pharmacy queue until you open the draft and click Sign.
+            </p>
+          )}
         </CardContent>
       </Card>
       <div className="space-y-4">
         <div>
           <h3 className="text-sm font-semibold mb-2">Drafts ({drafts.length})</h3>
+          {drafts.length > 0 && (
+            <div className="mb-3 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-800 dark:text-amber-200">
+              <div className="font-semibold mb-0.5">Drafts are NOT visible to any pharmacy yet.</div>
+              A prescription only appears in the destination pharmacy’s Rx queue after you click <span className="font-semibold">Sign + anchor</span> below (or use <span className="font-semibold">Sign and send to pharmacy</span> on the form to do both in one step).
+            </div>
+          )}
           {drafts.length === 0 && <Empty message="No drafts. Create one on the left." />}
           <div className="space-y-2">
             {drafts.map((r) => (
