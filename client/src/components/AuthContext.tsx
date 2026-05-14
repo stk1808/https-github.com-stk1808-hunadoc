@@ -9,6 +9,7 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -59,6 +60,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const refreshUser = async (): Promise<User | null> => {
+    try {
+      const r = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+      if (r.ok) {
+        const u = (await r.json()) as User;
+        flushSync(() => {
+          setUser(u);
+          setIsLoading(false);
+        });
+        return u;
+      }
+      flushSync(() => {
+        setUser(null);
+        setIsLoading(false);
+      });
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -70,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout: async () => {
           await logoutMutation.mutateAsync();
         },
+        refreshUser,
       }}
     >
       {children}

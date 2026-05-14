@@ -11,7 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { KeyRound } from "lucide-react";
 
 export default function ChangePasswordPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [oldPassword, setOldPassword] = useState("");
@@ -33,9 +33,14 @@ export default function ChangePasswordPage() {
     try {
       const r = await apiRequest("POST", "/api/auth/change-password", { oldPassword, newPassword });
       await r.json();
+      // Refetch the session so mustChangePassword flips to false in local state
+      // BEFORE we navigate — otherwise ProtectedDashboard sees stale state and
+      // bounces straight back to /change-password.
+      const fresh = await refreshUser();
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({ title: "Password updated", description: "You're all set." });
-      if (user) setLocation(`/dashboard/${user.role}`);
+      const role = fresh?.role || user?.role;
+      if (role) setLocation(`/dashboard/${role}`);
       else setLocation("/login");
     } catch (err: any) {
       toast({ title: "Could not change password", description: err.message, variant: "destructive" });
