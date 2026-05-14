@@ -129,9 +129,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <TestDataBanner />
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-5 items-start">
         {/* Left side — brand panel */}
-        <div className="hidden lg:flex lg:col-span-3 flex-col justify-between p-12 bg-gradient-to-br from-primary/5 via-card/40 to-primary/10 border-r border-border relative overflow-hidden">
+        <div className="hidden lg:flex lg:col-span-3 flex-col gap-10 p-12 bg-gradient-to-br from-primary/5 via-card/40 to-primary/10 border-r border-border relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.05] pointer-events-none" style={{
             backgroundImage: "radial-gradient(circle at 25% 30%, hsl(var(--primary)) 0, transparent 50%), radial-gradient(circle at 75% 70%, hsl(var(--primary)) 0, transparent 50%)",
           }} />
@@ -175,7 +175,7 @@ export default function LoginPage() {
         </div>
 
         {/* Right side — auth */}
-        <div className="lg:col-span-2 flex flex-col justify-center px-6 sm:px-10 py-10">
+        <div className="lg:col-span-2 flex flex-col px-6 sm:px-10 pt-12 pb-10">
           <div className="lg:hidden flex items-center gap-3 mb-8">
             <HunaDocLogo size={28} />
             <span className="font-semibold tracking-tight">
