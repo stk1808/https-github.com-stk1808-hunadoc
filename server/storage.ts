@@ -640,7 +640,57 @@ export async function ensureOwnerAccount() {
   // logged in and reset their own password.
   const passwordResetList = new Set<string>([
     "medipharm808@gmail.com",
+    // Manager accounts the user reported being unable to log in to. Reset
+    // their password to DEFAULT_PASSWORD on the next boot so the user can
+    // sign in and approve the pending registrations themselves.
+    "lavishluau@gmail.com",
+    "stk1808@yahoo.com",
+    "scotttwkim@yahoo.com",
   ]);
+
+  // One-shot approval list: any account in the global users table with one of
+  // these emails gets approval_status flipped to 'approved' on next boot, plus
+  // a fresh temporary password and must_change_password = 1 so they can sign
+  // in and immediately set their own password. This unblocks users that the
+  // Operations Manager intended to approve but who got stuck in the pending
+  // queue because the manager clicked "Verify license" (a separate action)
+  // instead of "Pending registrations → Approve". Add emails as lower-case.
+  const approveOnBootList = new Set<string>([
+    "michaelpalazzo",         // any address containing michaelpalazzo
+    "dongheekim",             // any address containing dongheekim
+    "donghee",                // catch "donghee.kim", "dong.hee" forms
+    "palazzo",                // catch other palazzo addresses
+  ]);
+  // The plain-text temporary password issued during boot-time approval. The
+  // manager should pass this to the user out-of-band on first login.
+  const APPROVE_ON_BOOT_TEMP_PASSWORD = "HunaDoc2026!";
+
+  // Boot-time auto-approval pass. Runs before the trusted-account loop so the
+  // manager accounts (which are also reset above) come back to a working state.
+  try {
+    const allUsers = sqlite.prepare(
+      "SELECT id, email, full_name, role, approval_status FROM users"
+    ).all() as Array<{ id: number; email: string; full_name: string; role: string; approval_status: string }>;
+    for (const row of allUsers) {
+      const emailLc = (row.email || "").toLowerCase();
+      const nameLc = (row.full_name || "").toLowerCase().replace(/\s+/g, "");
+      const matched = Array.from(approveOnBootList).some(
+        (needle) => emailLc.includes(needle) || nameLc.includes(needle)
+      );
+      if (!matched) continue;
+      if (row.approval_status === "approved") {
+        console.log(`[seed] approveOnBoot: ${row.email} already approved, skipping`);
+        continue;
+      }
+      await storage.updateUserPassword(row.id, APPROVE_ON_BOOT_TEMP_PASSWORD);
+      sqlite.exec(
+        `UPDATE users SET approval_status = 'approved', must_change_password = 1, verified = 1, is_demo = 0 WHERE id = ${row.id}`
+      );
+      console.log(`[seed] APPROVE-ON-BOOT: ${row.email} (role ${row.role}) -> approved, temp password ${APPROVE_ON_BOOT_TEMP_PASSWORD}`);
+    }
+  } catch (e) {
+    console.warn("[seed] approveOnBoot pass failed:", (e as Error).message);
+  }
 
   for (const acct of trustedAccounts) {
     try {

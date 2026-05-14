@@ -181,6 +181,9 @@ function VerifyLicenses() {
         <h2 className="text-base font-semibold">Pending license verifications</h2>
         <p className="text-xs text-muted-foreground">Verifying writes a SHA-256 of the credential to the XRPL Testnet.</p>
       </div>
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <span className="font-medium">Heads up:</span> verifying a license does NOT approve the user account. New sign-ups stay locked out until you approve them under <span className="font-medium">Access → Pending registrations</span>.
+      </div>
       {l2 && <Skel />}
       {!l2 && pending.length === 0 && <Empty message="No pending verifications. New license submissions appear here." />}
       <div className="space-y-2">
